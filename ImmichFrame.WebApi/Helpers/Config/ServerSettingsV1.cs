@@ -34,13 +34,18 @@ public class ServerSettingsV1 : IConfigSettable
     public int Interval { get; set; } = 45;
     public double TransitionDuration { get; set; } = 1;
     public bool ShowClock { get; set; } = true;
+    public bool ShowWeather { get; set; } = true;
+    public bool ShowCalendar { get; set; } = true;
+    public bool ShowMetadata { get; set; } = true;
     public string? ClockFormat { get; set; } = "hh:mm";
     public string? ClockDateFormat { get; set; } = "eee, MMM d";
     public bool ShowProgressBar { get; set; } = true;
     public bool ShowPhotoDate { get; set; } = true;
     public string? PhotoDateFormat { get; set; } = "MM/dd/yyyy";
+    public bool ShowPhotoTimeAgo { get; set; } = false;
     public bool ShowImageDesc { get; set; } = true;
     public bool ShowPeopleDesc { get; set; } = true;
+    public bool ShowPeopleAge { get; set; } = false;
     public bool ShowTagsDesc { get; set; } = true;
     public bool ShowAlbumName { get; set; } = true;
     public bool ShowImageLocation { get; set; } = true;
@@ -49,6 +54,20 @@ public class ServerSettingsV1 : IConfigSettable
     public string? SecondaryColor { get; set; }
     public string Style { get; set; } = "none";
     public string? BaseFontSize { get; set; }
+    public string? ClockFontSize { get; set; }
+    public string? WeatherFontSize { get; set; }
+    public string? CalendarFontSize { get; set; }
+    public string? MetadataFontSize { get; set; }
+    public string? ClockStyle { get; set; }
+    public string? WeatherStyle { get; set; }
+    public string? CalendarStyle { get; set; }
+    public string? MetadataStyle { get; set; }
+    public string ClockPosition { get; set; } = "bottom-left";
+    public string WeatherPosition { get; set; } = "bottom-left";
+    public string CalendarPosition { get; set; } = "top-right";
+    public string MetadataPosition { get; set; } = "bottom-right";
+    public List<string> WidgetStackOrder { get; set; } = ["clock", "weather", "metadata", "calendar"];
+    public bool ShowWeatherLocation { get; set; } = true;
     public bool ShowWeatherDescription { get; set; } = true;
     public string? WeatherIconUrl { get; set; } = "https://openweathermap.org/img/wn/{IconId}.png";
     public bool ImageZoom { get; set; } = true;
@@ -112,13 +131,18 @@ public class ServerSettingsV1Adapter(ServerSettingsV1 _delegate) : IServerSettin
         public bool DownloadImages => _delegate.DownloadImages;
         public int RenewImagesDuration => _delegate.RenewImagesDuration;
         public bool ShowClock => _delegate.ShowClock;
+        public bool ShowWeather => _delegate.ShowWeather;
+        public bool ShowCalendar => _delegate.ShowCalendar;
+        public bool ShowMetadata => _delegate.ShowMetadata;
         public string? ClockFormat => _delegate.ClockFormat;
         public string? ClockDateFormat => _delegate.ClockDateFormat;
         public bool ShowProgressBar => _delegate.ShowProgressBar;
         public bool ShowPhotoDate => _delegate.ShowPhotoDate;
         public string? PhotoDateFormat => _delegate.PhotoDateFormat;
+        public bool ShowPhotoTimeAgo => _delegate.ShowPhotoTimeAgo;
         public bool ShowImageDesc => _delegate.ShowImageDesc;
         public bool ShowPeopleDesc => _delegate.ShowPeopleDesc;
+        public bool ShowPeopleAge => _delegate.ShowPeopleAge;
         public bool ShowTagsDesc => _delegate.ShowTagsDesc;
         public bool ShowAlbumName => _delegate.ShowAlbumName;
         public bool ShowImageLocation => _delegate.ShowImageLocation;
@@ -127,6 +151,20 @@ public class ServerSettingsV1Adapter(ServerSettingsV1 _delegate) : IServerSettin
         public string? SecondaryColor => _delegate.SecondaryColor;
         public string Style => _delegate.Style;
         public string? BaseFontSize => _delegate.BaseFontSize;
+        public string? ClockFontSize => _delegate.ClockFontSize;
+        public string? WeatherFontSize => _delegate.WeatherFontSize;
+        public string? CalendarFontSize => _delegate.CalendarFontSize;
+        public string? MetadataFontSize => _delegate.MetadataFontSize;
+        public string? ClockStyle => _delegate.ClockStyle;
+        public string? WeatherStyle => _delegate.WeatherStyle;
+        public string? CalendarStyle => _delegate.CalendarStyle;
+        public string? MetadataStyle => _delegate.MetadataStyle;
+        public string ClockPosition => _delegate.ClockPosition;
+        public string WeatherPosition => _delegate.WeatherPosition;
+        public string CalendarPosition => _delegate.CalendarPosition;
+        public string MetadataPosition => _delegate.MetadataPosition;
+        public List<string> WidgetStackOrder => _delegate.WidgetStackOrder;
+        public bool ShowWeatherLocation => _delegate.ShowWeatherLocation;
         public bool ShowWeatherDescription => _delegate.ShowWeatherDescription;
         public string? WeatherIconUrl => _delegate.WeatherIconUrl;
         public bool ImageZoom => _delegate.ImageZoom;

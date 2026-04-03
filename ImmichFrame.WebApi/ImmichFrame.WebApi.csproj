@@ -20,7 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Update="wwwroot\custom.css">
+    <Content Update="wwwroot\static\custom.css">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <InternalsVisibleTo Include="ImmichFrame.WebApi.Tests" />

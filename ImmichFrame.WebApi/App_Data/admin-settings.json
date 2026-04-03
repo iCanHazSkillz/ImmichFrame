@@ -1,0 +1,82 @@
+{
+  "General": {
+    "DownloadImages": false,
+    "Language": "en",
+    "ImageLocationFormat": "City,State,Country",
+    "PhotoDateFormat": "MMMM dd, yyyy",
+    "Interval": 120,
+    "TransitionDuration": 2,
+    "ShowClock": true,
+    "ShowWeather": true,
+    "ShowCalendar": true,
+    "ShowMetadata": true,
+    "ClockFormat": "h:mm a",
+    "ClockDateFormat": "EEEE, MMMM d",
+    "ShowProgressBar": true,
+    "ShowPhotoDate": true,
+    "ShowPhotoTimeAgo": false,
+    "ShowImageDesc": true,
+    "ShowPeopleDesc": true,
+    "ShowPeopleAge": false,
+    "ShowTagsDesc": true,
+    "ShowAlbumName": true,
+    "ShowImageLocation": true,
+    "PrimaryColor": "#F5DEB3",
+    "SecondaryColor": "#40004080",
+    "Style": "solid",
+    "BaseFontSize": null,
+    "ClockFontSize": "xx-small",
+    "WeatherFontSize": "xx-small",
+    "CalendarFontSize": "small",
+    "MetadataFontSize": "x-large",
+    "ClockStyle": "none",
+    "WeatherStyle": "none",
+    "CalendarStyle": "blur",
+    "MetadataStyle": "none",
+    "ClockPosition": "bottom-right",
+    "WeatherPosition": "bottom-right",
+    "CalendarPosition": "bottom-right",
+    "MetadataPosition": "bottom-left",
+    "WidgetStackOrder": [
+      "clock",
+      "metadata",
+      "calendar",
+      "weather"
+    ],
+    "ShowWeatherLocation": false,
+    "ShowWeatherDescription": false,
+    "WeatherIconUrl": "https://openweathermap.org/img/wn/{IconId}.png",
+    "ImageZoom": true,
+    "ImagePan": true,
+    "ImageFill": false,
+    "PlayAudio": true,
+    "Layout": "single",
+    "RenewImagesDuration": 30,
+    "Webcalendars": [
+      "https://calendar.google.com/calendar/ical/martel.s.g%40gmail.com/public/basic.ics"
+    ],
+    "RefreshAlbumPeopleInterval": 12,
+    "WeatherApiKey": "1eaf40f5ca4e2bfece7cf1e7a01d7483",
+    "UnitSystem": "metric",
+    "WeatherLatLong": "53.710072,-113.213310",
+    "Webhook": null
+  },
+  "Accounts": [
+    {
+      "ShowMemories": true,
+      "ShowFavorites": false,
+      "ShowArchived": false,
+      "ShowVideos": true,
+      "ImagesFromDays": null,
+      "ImagesFromDate": null,
+      "ImagesUntilDate": null,
+      "Albums": [
+        "7aa8c211-b920-47d0-b32c-40248f86f15e"
+      ],
+      "ExcludedAlbums": [],
+      "People": [],
+      "Tags": [],
+      "Rating": null
+    }
+  ]
+}

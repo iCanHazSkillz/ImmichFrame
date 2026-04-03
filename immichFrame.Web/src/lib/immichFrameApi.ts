@@ -191,13 +191,18 @@ export type ClientSettingsDto = {
     downloadImages?: boolean;
     renewImagesDuration?: number;
     showClock?: boolean;
+    showWeather?: boolean;
+    showCalendar?: boolean;
+    showMetadata?: boolean;
     clockFormat?: string | null;
     clockDateFormat?: string | null;
     showPhotoDate?: boolean;
     showProgressBar?: boolean;
     photoDateFormat?: string | null;
+    showPhotoTimeAgo?: boolean;
     showImageDesc?: boolean;
     showPeopleDesc?: boolean;
+    showPeopleAge?: boolean;
     showTagsDesc?: boolean;
     showAlbumName?: boolean;
     showImageLocation?: boolean;
@@ -206,6 +211,20 @@ export type ClientSettingsDto = {
     secondaryColor?: string | null;
     style?: string | null;
     baseFontSize?: string | null;
+    clockFontSize?: string | null;
+    weatherFontSize?: string | null;
+    calendarFontSize?: string | null;
+    metadataFontSize?: string | null;
+    clockStyle?: string | null;
+    weatherStyle?: string | null;
+    calendarStyle?: string | null;
+    metadataStyle?: string | null;
+    clockPosition?: string | null;
+    weatherPosition?: string | null;
+    calendarPosition?: string | null;
+    metadataPosition?: string | null;
+    widgetStackOrder?: string[] | null;
+    showWeatherLocation?: boolean;
     showWeatherDescription?: boolean;
     weatherIconUrl?: string | null;
     imageZoom?: boolean;
@@ -214,6 +233,7 @@ export type ClientSettingsDto = {
     playAudio?: boolean;
     layout?: string | null;
     language?: string | null;
+    webcalendars?: string[] | null;
 };
 export type IWeather = {
     location?: string | null;
