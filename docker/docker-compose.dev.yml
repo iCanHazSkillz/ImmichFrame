@@ -7,6 +7,8 @@ services:
       - 8080:8080
     env_file:
       - .env
-    # volumes:
-      # - PATH/TO/CONFIG:/app/Config
-      # - PATH/TO/APPDATA:/app/App_Data
+    environment:
+      TZ: "${TZ:-Etc/UTC}"
+    volumes:
+      - C:\Users\mmart\Documents\Immichframe_data\Config:/app/Config
+      - C:\Users\mmart\Documents\Immichframe_data\App_Data:/app/App_Data
