@@ -43,13 +43,18 @@
         public bool DownloadImages { get; }
         public int RenewImagesDuration { get; }
         public bool ShowClock { get; }
+        public bool ShowWeather { get; }
+        public bool ShowCalendar { get; }
+        public bool ShowMetadata { get; }
         public string? ClockFormat { get; }
         public string? ClockDateFormat { get; }
         public bool ShowProgressBar { get; }
         public bool ShowPhotoDate { get; }
         public string? PhotoDateFormat { get; }
+        public bool ShowPhotoTimeAgo { get; }
         public bool ShowImageDesc { get; }
         public bool ShowPeopleDesc { get; }
+        public bool ShowPeopleAge { get; }
         public bool ShowTagsDesc { get; }
         public bool ShowAlbumName { get; }
         public bool ShowImageLocation { get; }
@@ -58,6 +63,20 @@
         public string? SecondaryColor { get; }
         public string Style { get; }
         public string? BaseFontSize { get; }
+        public string? ClockFontSize { get; }
+        public string? WeatherFontSize { get; }
+        public string? CalendarFontSize { get; }
+        public string? MetadataFontSize { get; }
+        public string? ClockStyle { get; }
+        public string? WeatherStyle { get; }
+        public string? CalendarStyle { get; }
+        public string? MetadataStyle { get; }
+        public string ClockPosition { get; }
+        public string WeatherPosition { get; }
+        public string CalendarPosition { get; }
+        public string MetadataPosition { get; }
+        public List<string> WidgetStackOrder { get; }
+        public bool ShowWeatherLocation { get; }
         public bool ShowWeatherDescription { get; }
         public string? WeatherIconUrl { get; }
         public bool ImageZoom { get; }

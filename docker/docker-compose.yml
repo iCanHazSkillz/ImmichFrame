@@ -7,10 +7,10 @@ services:
     # volumes:
     #   - PATH/TO/CONFIG:/app/Config
     #   - PATH/TO/APPDATA:/app/App_Data
-    #   - PATH/TO/CUSTOMCSS/custom.css:/app/wwwroot/static/custom.css
+    # custom CSS now lives in /app/App_Data/custom.css
     ports:
       - "8080:8080"
     env_file:
       - .env
     environment:
-      TZ: "Europe/Berlin"
+      TZ: "${TZ:-Etc/UTC}"

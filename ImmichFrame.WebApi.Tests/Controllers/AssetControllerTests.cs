@@ -14,6 +14,7 @@ using ImmichFrame.Core.Api;
 using ImmichFrame.WebApi.Models;
 using ImmichFrame.Core.Interfaces; // Added this back
 using NUnit.Framework;
+using ImmichFrame.WebApi.Services;
 
 namespace ImmichFrame.WebApi.Tests.Controllers
 {
@@ -22,11 +23,14 @@ namespace ImmichFrame.WebApi.Tests.Controllers
     {
         private WebApplicationFactory<Program> _factory;
         private Mock<HttpMessageHandler> _mockHttpMessageHandler;
+        private string _tempAppDataPath;
 
         [SetUp]
         public void Setup()
         {
             _mockHttpMessageHandler = new Mock<HttpMessageHandler>();
+            _tempAppDataPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(_tempAppDataPath);
             _factory = new WebApplicationFactory<Program>()
                 .WithWebHostBuilder(builder =>
                 {
@@ -47,7 +51,8 @@ namespace ImmichFrame.WebApi.Tests.Controllers
                         // 2. Directly instantiate and register settings objects
                         var generalSettings = new GeneralSettings
                         {
-                            ShowWeatherDescription = false, // Assuming this corresponds to ShowWeather
+                            ShowWeather = true,
+                            ShowWeatherDescription = false,
                             WeatherIconUrl = "https://openweathermap.org/img/wn/{IconId}.png",
                             ShowClock = true,
                             ClockFormat = "HH:mm",
@@ -85,10 +90,11 @@ namespace ImmichFrame.WebApi.Tests.Controllers
                             AccountsImpl = new List<ServerAccountSettings> { accountSettings }
                         };
 
-                        services.AddSingleton<IServerSettings>(serverSettings);
-                        services.AddSingleton<IGeneralSettings>(generalSettings);
-                        // Ensure IAccountSettings can be resolved if needed by MultiImmichFrameLogicDelegate directly
-                        // However, PooledImmichFrameLogic receives IAccountSettings via the factory Func
+                        services.AddSingleton(new BootstrapServerSettingsHolder(serverSettings));
+                        services.AddSingleton(new AdminManagedSettingsStoreOptions
+                        {
+                            StorePath = Path.Combine(_tempAppDataPath, "admin-settings.json")
+                        });
                     });
                 });
         }
@@ -99,6 +105,10 @@ namespace ImmichFrame.WebApi.Tests.Controllers
         public void TearDown()
         {
             _factory.Dispose();
+            if (Directory.Exists(_tempAppDataPath))
+            {
+                Directory.Delete(_tempAppDataPath, true);
+            }
         }
 
         [Test]

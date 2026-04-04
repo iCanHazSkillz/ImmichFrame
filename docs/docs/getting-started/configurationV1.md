@@ -98,16 +98,17 @@ Images will be drawn from each account proportionally based on the total number 
 
 ### Custom CSS
 ImmichFrame can be customized even further using CSS. This will apply to browsers, and apps using WebView (i.e. everything but Frameo and AppleTV):
-- Create a custom.css file somewhere on your host server with your desired content, for example:  
+- The recommended way is to manage custom CSS from `/admin/settings`. ImmichFrame stores that CSS in `App_Data/custom.css` and serves it at `/static/custom.css`.
+- If you prefer file-based management, place your CSS in `App_Data/custom.css` inside the app data volume, for example:
 ```css
 #progressbar {  
   visibility: hidden;  
 }
 ```
-- Add an entry in your immichframe compose pointing to it:  
+- Make sure your compose file includes the `App_Data` volume:
 ```
 volumes:  
-      - /PATH/TO/YOUR/custom.css:/app/wwwroot/static/custom.css"
+      - /PATH/TO/APPDATA:/app/App_Data
 ```
 
 [openweathermap-url]: https://openweathermap.org/appid

@@ -54,6 +54,91 @@ export interface AdminAuthSessionDto {
 	username?: string | null;
 }
 
+export interface AdminManagedGeneralSettings {
+	downloadImages: boolean;
+	language: string;
+	imageLocationFormat?: string | null;
+	photoDateFormat?: string | null;
+	interval: number;
+	transitionDuration: number;
+	showClock: boolean;
+	showWeather: boolean;
+	showCalendar: boolean;
+	showMetadata: boolean;
+	clockFormat?: string | null;
+	clockDateFormat?: string | null;
+	showProgressBar: boolean;
+	showPhotoDate: boolean;
+	showImageDesc: boolean;
+	showPeopleDesc: boolean;
+	showPeopleAge: boolean;
+	showPhotoTimeAgo: boolean;
+	showTagsDesc: boolean;
+	showAlbumName: boolean;
+	showImageLocation: boolean;
+	primaryColor?: string | null;
+	secondaryColor?: string | null;
+	style: string;
+	baseFontSize?: string | null;
+	clockFontSize?: string | null;
+	weatherFontSize?: string | null;
+	calendarFontSize?: string | null;
+	metadataFontSize?: string | null;
+	clockStyle?: string | null;
+	weatherStyle?: string | null;
+	calendarStyle?: string | null;
+	metadataStyle?: string | null;
+	clockPosition: string;
+	weatherPosition: string;
+	calendarPosition: string;
+	metadataPosition: string;
+	widgetStackOrder: string[];
+	showWeatherLocation: boolean;
+	showWeatherDescription: boolean;
+	weatherIconUrl?: string | null;
+	imageZoom: boolean;
+	imagePan: boolean;
+	imageFill: boolean;
+	playAudio: boolean;
+	layout: string;
+	renewImagesDuration: number;
+	webcalendars: string[];
+	refreshAlbumPeopleInterval: number;
+	weatherApiKey?: string | null;
+	unitSystem?: string | null;
+	weatherLatLong?: string | null;
+	webhook?: string | null;
+}
+
+export interface AdminManagedAccountSettings {
+	showMemories: boolean;
+	showFavorites: boolean;
+	showArchived: boolean;
+	showVideos: boolean;
+	imagesFromDays?: number | null;
+	imagesFromDate?: string | null;
+	imagesUntilDate?: string | null;
+	albums: string[];
+	excludedAlbums: string[];
+	people: string[];
+	tags: string[];
+	rating?: number | null;
+}
+
+export interface AdminAccountSettingsDto extends AdminManagedAccountSettings {
+	accountIndex: number;
+	accountLabel: string;
+	immichServerUrl: string;
+}
+
+export interface AdminSettingsResponseDto {
+	version: number;
+	general: AdminManagedGeneralSettings;
+	accounts: AdminAccountSettingsDto[];
+	customCss: string;
+	bootstrapManagedFields: string[];
+}
+
 export class FrameSessionApiError extends Error {
 	status: number;
 
@@ -244,4 +329,29 @@ export async function logoutAdmin() {
 	});
 
 	throwIfNotOk(response, `Failed to log out: ${response.status}`);
+}
+
+export async function getAdminSettings() {
+	const response = await fetch('/api/admin/settings', {
+		credentials: 'same-origin'
+	});
+
+	throwIfNotOk(response, `Failed to fetch admin settings: ${response.status}`);
+	return readJson<AdminSettingsResponseDto>(response);
+}
+
+export async function updateAdminSettings(settings: {
+	general: AdminManagedGeneralSettings;
+	accounts: AdminManagedAccountSettings[];
+	customCss: string;
+}) {
+	const response = await fetch('/api/admin/settings', {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		credentials: 'same-origin',
+		body: JSON.stringify(settings)
+	});
+
+	throwIfNotOk(response, `Failed to update admin settings: ${response.status}`);
+	return readJson<AdminSettingsResponseDto>(response);
 }

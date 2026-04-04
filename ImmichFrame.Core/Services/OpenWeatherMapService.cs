@@ -5,18 +5,28 @@ public class OpenWeatherMapService : IWeatherService
 {
     private sealed record CachedWeather(IWeather? Weather);
 
-    private readonly IGeneralSettings _settings;
-    private readonly IApiCache _weatherCache = new ApiCache(TimeSpan.FromMinutes(5));
-    public OpenWeatherMapService(IGeneralSettings settings)
+    private readonly ISettingsSnapshotProvider _settingsProvider;
+    private readonly object _sync = new();
+    private ApiCache _weatherCache = new(TimeSpan.FromMinutes(5));
+    private long _cacheVersion = -1;
+
+    public OpenWeatherMapService(ISettingsSnapshotProvider settingsProvider)
     {
-        _settings = settings;
+        _settingsProvider = settingsProvider;
     }
 
     public async Task<IWeather?> GetWeather()
     {
-        var cachedWeather = await _weatherCache.GetOrAddAsync("weather", async () =>
+        var settings = _settingsProvider.GetCurrentSettings().GeneralSettings;
+        if (!settings.ShowWeather || string.IsNullOrWhiteSpace(settings.WeatherApiKey))
         {
-            var weatherLatLong = _settings.WeatherLatLong;
+            return null;
+        }
+
+        var cache = GetCache();
+        var cachedWeather = await cache.GetOrAddAsync("weather", async () =>
+        {
+            var weatherLatLong = settings.WeatherLatLong;
 
             var weatherLat = !string.IsNullOrWhiteSpace(weatherLatLong) ? float.Parse(weatherLatLong!.Split(',')[0]) : 0f;
             var weatherLong = !string.IsNullOrWhiteSpace(weatherLatLong) ? float.Parse(weatherLatLong!.Split(',')[1]) : 0f;
@@ -31,11 +41,17 @@ public class OpenWeatherMapService : IWeatherService
 
     public async Task<IWeather?> GetWeather(double latitude, double longitude)
     {
+        var settings = _settingsProvider.GetCurrentSettings().GeneralSettings;
+        if (!settings.ShowWeather || string.IsNullOrWhiteSpace(settings.WeatherApiKey))
+        {
+            return null;
+        }
+
         OpenWeatherMap.OpenWeatherMapOptions options = new OpenWeatherMap.OpenWeatherMapOptions
         {
-            ApiKey = _settings.WeatherApiKey,
-            UnitSystem = _settings.UnitSystem,
-            Language = _settings.Language,
+            ApiKey = settings.WeatherApiKey,
+            UnitSystem = settings.UnitSystem,
+            Language = settings.Language,
         };
 
         try
@@ -51,5 +67,27 @@ public class OpenWeatherMapService : IWeatherService
         }
 
         return null;
+    }
+
+    private ApiCache GetCache()
+    {
+        var version = _settingsProvider.GetCurrentVersion();
+        if (_cacheVersion == version)
+        {
+            return _weatherCache;
+        }
+
+        lock (_sync)
+        {
+            if (_cacheVersion == version)
+            {
+                return _weatherCache;
+            }
+
+            _weatherCache.Dispose();
+            _weatherCache = new ApiCache(TimeSpan.FromMinutes(5));
+            _cacheVersion = version;
+            return _weatherCache;
+        }
     }
 }

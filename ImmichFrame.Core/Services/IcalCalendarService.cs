@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.RegularExpressions;
 using Ical.Net;
 using ImmichFrame.Core.Helpers;
 using ImmichFrame.Core.Interfaces;
@@ -8,35 +9,46 @@ using Microsoft.Extensions.Logging;
 
 public class IcalCalendarService : ICalendarService
 {
-    private readonly IGeneralSettings _serverSettings;
+    private static readonly Regex EncodedCalendarSegmentPattern = new("%+(?=[0-9A-Fa-f]{2})", RegexOptions.Compiled);
+    private readonly ISettingsSnapshotProvider _settingsProvider;
     private readonly ILogger<IcalCalendarService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly ApiCache _appointmentCache = new(TimeSpan.FromMinutes(15));
+    private readonly object _sync = new();
+    private ApiCache _appointmentCache = new(TimeSpan.FromMinutes(15));
+    private long _cacheVersion = -1;
 
-    public IcalCalendarService(IGeneralSettings serverSettings, ILogger<IcalCalendarService> logger, IHttpClientFactory httpClientFactory)
+    public IcalCalendarService(ISettingsSnapshotProvider settingsProvider, ILogger<IcalCalendarService> logger, IHttpClientFactory httpClientFactory)
     {
         _logger = logger;
-        _serverSettings = serverSettings;
+        _settingsProvider = settingsProvider;
         _httpClientFactory = httpClientFactory;
     }
 
     public async Task<List<IAppointment>> GetAppointments()
     {
-        return await _appointmentCache.GetOrAddAsync("appointments", async () =>
+        var settings = _settingsProvider.GetCurrentSettings().GeneralSettings;
+        var cache = GetCache();
+        return await cache.GetOrAddAsync("appointments", async () =>
         {
             var appointments = new List<IAppointment>();
 
-            List<(string? auth, string url)> cals = _serverSettings.Webcalendars.Select<string, (string? auth, string url)?>(x =>
+            List<(string? auth, string url)> cals = settings.Webcalendars.Select<string, (string? auth, string url)?>(x =>
             {
                 try
                 {
-                    var uri = new Uri(x.Replace("webcal://", "https://"));
+                    var normalizedUrl = NormalizeCalendarUrl(x);
+                    if (string.IsNullOrWhiteSpace(normalizedUrl))
+                    {
+                        return null;
+                    }
+
+                    var uri = new Uri(normalizedUrl.Replace("webcal://", "https://"));
                     if (!string.IsNullOrEmpty(uri.UserInfo))
                     {
                         var url = uri.GetComponents(UriComponents.AbsoluteUri & ~UriComponents.UserInfo, UriFormat.UriEscaped);
                         return (Uri.UnescapeDataString(uri.UserInfo), url);
                     }
-                    return (null, x);
+                    return (null, normalizedUrl);
                 }
                 catch (UriFormatException)
                 {
@@ -68,6 +80,7 @@ public class IcalCalendarService : ICalendarService
             _logger.LogDebug($"Loading calendar: {(calendar.auth != null ? "[authenticated]" : "no auth")} - {calendar.url}");
 
             string httpUrl = calendar.url.Replace("webcal://", "https://");
+            httpUrl = NormalizeCalendarUrl(httpUrl);
 
             using var request = new HttpRequestMessage(HttpMethod.Get, httpUrl);
 
@@ -89,5 +102,37 @@ public class IcalCalendarService : ICalendarService
         }
 
         return icals;
+    }
+
+    private static string NormalizeCalendarUrl(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        return EncodedCalendarSegmentPattern.Replace(value.Trim(), "%");
+    }
+
+    private ApiCache GetCache()
+    {
+        var version = _settingsProvider.GetCurrentVersion();
+        if (_cacheVersion == version)
+        {
+            return _appointmentCache;
+        }
+
+        lock (_sync)
+        {
+            if (_cacheVersion == version)
+            {
+                return _appointmentCache;
+            }
+
+            _appointmentCache.Dispose();
+            _appointmentCache = new ApiCache(TimeSpan.FromMinutes(15));
+            _cacheVersion = version;
+            return _appointmentCache;
+        }
     }
 }
