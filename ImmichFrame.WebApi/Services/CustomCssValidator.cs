@@ -117,6 +117,6 @@ public sealed partial class CustomCssValidator : ICustomCssValidator
     [GeneratedRegex(@":has\s*\(|\[[^\]]*[\*\^\$]=[^\]]*\]", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex ExpensiveSelectorPattern();
 
-    [GeneratedRegex(@"\s*[>+~]\s*|\s{2,}", RegexOptions.Compiled)]
+    [GeneratedRegex(@"\s*[>+~]\s*|\s{2,}|(?<=\S)\s(?=\S)", RegexOptions.Compiled)]
     private static partial Regex CombinatorPattern();
 }

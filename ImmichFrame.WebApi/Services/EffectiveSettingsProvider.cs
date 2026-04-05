@@ -1,5 +1,6 @@
 using ImmichFrame.WebApi.Models;
 using ImmichFrame.Core.Interfaces;
+using System.Text.Json;
 
 namespace ImmichFrame.WebApi.Services;
 
@@ -28,6 +29,7 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
     private readonly IAdminManagedSettingsStore _store;
     private readonly ICustomCssStore _customCssStore;
     private readonly ILogger<EffectiveSettingsProvider> _logger;
+    private AdminManagedSettingsDocument _managedSettingsDocument;
     private EffectiveSettingsSnapshot _snapshot;
 
     public EffectiveSettingsProvider(
@@ -42,8 +44,9 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
         _logger = logger;
 
         var storedSettings = _store.LoadOrSeed(_bootstrapSettings);
-        _snapshot = BuildSnapshot(1, storedSettings, _customCssStore.LoadEditableCss());
-        _store.Save(AdminManagedSettingsDocument.FromServerSettings(_snapshot.Settings));
+        _managedSettingsDocument = CloneManagedSettingsDocument(storedSettings);
+        _snapshot = BuildSnapshot(1, _managedSettingsDocument, _customCssStore.LoadEditableCss());
+        _store.Save(CloneManagedSettingsDocument(_managedSettingsDocument));
     }
 
     public EffectiveSettingsSnapshot GetCurrentSnapshot()
@@ -70,14 +73,19 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
         lock (_sync)
         {
             var currentSnapshot = _snapshot;
-            var currentDocument = AdminManagedSettingsDocument.FromServerSettings(currentSnapshot.Settings);
-            var nextSnapshot = BuildSnapshot(currentSnapshot.Version + 1, settings, customCss ?? string.Empty);
+            var currentDocument = CloneManagedSettingsDocument(_managedSettingsDocument);
+            var nextManagedDocument = MergeManagedSettingsDocument(currentDocument, settings);
+            var nextSnapshot = BuildSnapshot(currentSnapshot.Version + 1, nextManagedDocument, customCss ?? string.Empty);
 
-            _store.Save(AdminManagedSettingsDocument.FromServerSettings(nextSnapshot.Settings));
+            _store.Save(CloneManagedSettingsDocument(nextManagedDocument));
 
             try
             {
                 _customCssStore.Save(nextSnapshot.CustomCss);
+                var loadedCustomCss = _customCssStore.LoadEditableCss();
+                _managedSettingsDocument = nextManagedDocument;
+                _snapshot = nextSnapshot with { CustomCss = loadedCustomCss };
+                return CloneSnapshot(_snapshot);
             }
             catch (Exception ex)
             {
@@ -92,9 +100,6 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
 
                 throw new InvalidOperationException("Failed to persist custom CSS.", ex);
             }
-
-            _snapshot = nextSnapshot with { CustomCss = _customCssStore.LoadEditableCss() };
-            return CloneSnapshot(_snapshot);
         }
     }
 
@@ -155,5 +160,62 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
             snapshot.Version,
             ServerSettingsFactory.Clone(snapshot.Settings),
             snapshot.CustomCss);
+    }
+
+    private void ReplaceOrAppendManagedAccount(List<AdminManagedAccountSettings> accounts, AdminManagedAccountSettings account)
+    {
+        if (string.IsNullOrWhiteSpace(account.AccountIdentifier))
+        {
+            _logger.LogWarning("Skipping admin-managed account update because it is missing an AccountIdentifier.");
+            return;
+        }
+
+        var existingIndex = accounts.FindIndex(existing =>
+            string.Equals(existing.AccountIdentifier, account.AccountIdentifier, StringComparison.Ordinal));
+
+        if (existingIndex >= 0)
+        {
+            accounts[existingIndex] = account;
+            return;
+        }
+
+        accounts.Add(account);
+    }
+
+    private AdminManagedSettingsDocument MergeManagedSettingsDocument(
+        AdminManagedSettingsDocument currentDocument,
+        AdminManagedSettingsDocument incomingDocument)
+    {
+        currentDocument.Normalize();
+        incomingDocument.Normalize();
+
+        var mergedDocument = CloneManagedSettingsDocument(currentDocument);
+        mergedDocument.General = CloneManagedGeneralSettings(incomingDocument.General);
+
+        foreach (var incomingAccount in incomingDocument.Accounts.Select(CloneManagedAccountSettings))
+        {
+            ReplaceOrAppendManagedAccount(mergedDocument.Accounts, incomingAccount);
+        }
+
+        mergedDocument.Normalize();
+        return mergedDocument;
+    }
+
+    private static AdminManagedSettingsDocument CloneManagedSettingsDocument(AdminManagedSettingsDocument document)
+    {
+        return JsonSerializer.Deserialize<AdminManagedSettingsDocument>(JsonSerializer.Serialize(document))
+            ?? new AdminManagedSettingsDocument();
+    }
+
+    private static AdminManagedGeneralSettings CloneManagedGeneralSettings(AdminManagedGeneralSettings settings)
+    {
+        return JsonSerializer.Deserialize<AdminManagedGeneralSettings>(JsonSerializer.Serialize(settings))
+            ?? new AdminManagedGeneralSettings();
+    }
+
+    private static AdminManagedAccountSettings CloneManagedAccountSettings(AdminManagedAccountSettings settings)
+    {
+        return JsonSerializer.Deserialize<AdminManagedAccountSettings>(JsonSerializer.Serialize(settings))
+            ?? new AdminManagedAccountSettings();
     }
 }

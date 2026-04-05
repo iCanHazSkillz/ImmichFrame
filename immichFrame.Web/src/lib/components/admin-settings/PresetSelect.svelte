@@ -36,7 +36,18 @@
 
 	const normalizedValue = $derived(normalizeValue(value));
 
-	const hasPresetMatch = $derived(options.some((option) => option.value === (normalizedValue ?? '')));
+	const coercedValue = $derived.by(() => {
+		const normalized = normalizedValue;
+		const hasMatch = options.some((option) => option.value === (normalized ?? ''));
+
+		if (allowCustom || normalized === null || hasMatch) {
+			return normalized;
+		}
+
+		return allowEmpty ? null : normalizeValue(options[0]?.value);
+	});
+
+	const hasPresetMatch = $derived(options.some((option) => option.value === (coercedValue ?? '')));
 
 	const showCustomInput = $derived(
 		allowCustom && (customRequested || (Boolean(normalizedValue) && !hasPresetMatch))
@@ -47,17 +58,23 @@
 			return CUSTOM_VALUE;
 		}
 
-		return normalizedValue ?? '';
+		return coercedValue ?? '';
 	});
 
 	const selectedHint = $derived.by(() => {
-		const current = options.find((option) => option.value === (normalizedValue ?? ''));
+		const current = options.find((option) => option.value === (coercedValue ?? ''));
 		return current?.hint ?? '';
 	});
 
 	$effect(() => {
-		if (hasPresetMatch) {
+		if (!allowCustom || hasPresetMatch) {
 			customRequested = false;
+		}
+	});
+
+	$effect(() => {
+		if (value !== coercedValue) {
+			value = coercedValue;
 		}
 	});
 
@@ -99,7 +116,7 @@
 		<input
 			type="text"
 			class="w-full rounded-2xl border border-white/12 bg-stone-950/85 px-4 py-3 text-sm text-stone-100 outline-none transition placeholder:text-stone-500 focus:border-[color:var(--primary-color)]/75"
-			value={normalizedValue ?? ''}
+			value={coercedValue ?? ''}
 			placeholder={customPlaceholder}
 			oninput={(event) => (value = normalizeValue((event.currentTarget as HTMLInputElement).value))}
 		/>

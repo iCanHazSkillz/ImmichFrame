@@ -237,6 +237,128 @@ public class AdminSettingsControllerTests
     }
 
     [Test]
+    public async Task Update_PreservesDormantStoredAccountOverridesDuringRoundTrip()
+    {
+        var dormantAccountIdentifier = "DORMANT-ACCOUNT-ID";
+        var dormantAlbumId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var dormantPersonId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var storePath = Path.Combine(_tempAppDataPath, "admin-settings.json");
+
+        await File.WriteAllTextAsync(storePath, $$"""
+        {
+          "General": {
+            "Interval": 45,
+            "ShowClock": true,
+            "ShowWeather": true,
+            "ShowCalendar": true,
+            "ClockFormat": "hh:mm",
+            "ClockDateFormat": "eee, MMM d",
+            "PhotoDateFormat": "MM/dd/yyyy",
+            "ImageLocationFormat": "City,State,Country",
+            "Layout": "splitview",
+            "Language": "en",
+            "ShowProgressBar": true,
+            "ShowPhotoDate": true,
+            "ShowImageDesc": true,
+            "ShowPeopleDesc": true,
+            "ShowTagsDesc": true,
+            "ShowAlbumName": true,
+            "ShowImageLocation": true,
+            "ShowWeatherDescription": true,
+            "ImageZoom": true,
+            "ImagePan": false,
+            "ImageFill": false,
+            "PlayAudio": false,
+            "Style": "none",
+            "Webcalendars": []
+          },
+          "Accounts": [
+            {
+              "AccountIdentifier": "{{CreateAccountIdentifier()}}",
+              "ShowFavorites": true,
+              "ShowMemories": false,
+              "ShowArchived": false,
+              "ShowVideos": false,
+              "Albums": [],
+              "ExcludedAlbums": [],
+              "People": [],
+              "Tags": []
+            },
+            {
+              "AccountIdentifier": "{{dormantAccountIdentifier}}",
+              "ShowFavorites": false,
+              "ShowMemories": false,
+              "ShowArchived": false,
+              "ShowVideos": false,
+              "Albums": ["{{dormantAlbumId}}"],
+              "ExcludedAlbums": [],
+              "People": ["{{dormantPersonId}}"],
+              "Tags": ["dormant-tag"]
+            }
+          ]
+        }
+        """);
+
+        var adminClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var response = await adminClient.GetFromJsonAsync<AdminSettingsResponseDto>("/api/admin/settings");
+
+        Assert.That(response, Is.Not.Null);
+        Assert.That(response!.Accounts, Has.Count.EqualTo(1));
+        Assert.That(response.Accounts[0].AccountIdentifier, Is.EqualTo(CreateAccountIdentifier()));
+
+        var updateRequest = new AdminSettingsUpdateRequest
+        {
+            General = response.General,
+            CustomCss = response.CustomCss,
+            Accounts = response.Accounts.Select(account => new AdminManagedAccountSettings
+            {
+                AccountIdentifier = account.AccountIdentifier,
+                ShowMemories = account.ShowMemories,
+                ShowFavorites = account.ShowFavorites,
+                ShowArchived = account.ShowArchived,
+                ShowVideos = account.ShowVideos,
+                ImagesFromDays = account.ImagesFromDays,
+                ImagesFromDate = account.ImagesFromDate,
+                ImagesUntilDate = account.ImagesUntilDate,
+                Albums = account.Albums.ToList(),
+                ExcludedAlbums = account.ExcludedAlbums.ToList(),
+                People = account.People.ToList(),
+                Tags = account.Tags.ToList(),
+                Rating = account.Rating
+            }).ToList()
+        };
+        updateRequest.General.ShowWeather = false;
+        updateRequest.General.ShowCalendar = false;
+
+        var updateResponse = await adminClient.PutAsJsonAsync("/api/admin/settings", updateRequest);
+        updateResponse.EnsureSuccessStatusCode();
+
+        var roundTripped = await adminClient.GetFromJsonAsync<AdminSettingsResponseDto>("/api/admin/settings");
+        Assert.That(roundTripped, Is.Not.Null);
+        Assert.That(roundTripped!.Accounts, Has.Count.EqualTo(1));
+        Assert.That(roundTripped.Accounts[0].AccountIdentifier, Is.EqualTo(CreateAccountIdentifier()));
+
+        var persisted = System.Text.Json.JsonSerializer.Deserialize<AdminManagedSettingsDocument>(await File.ReadAllTextAsync(storePath));
+        Assert.That(persisted, Is.Not.Null);
+
+        var dormantPersistedAccount = persisted!.Accounts.SingleOrDefault(account =>
+            string.Equals(account.AccountIdentifier, dormantAccountIdentifier, StringComparison.Ordinal));
+
+        Assert.That(dormantPersistedAccount, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(dormantPersistedAccount!.Albums, Is.EqualTo(new[] { dormantAlbumId }));
+            Assert.That(dormantPersistedAccount.People, Is.EqualTo(new[] { dormantPersonId }));
+            Assert.That(dormantPersistedAccount.Tags, Is.EqualTo(new[] { "dormant-tag" }));
+        });
+    }
+
+    [Test]
     public async Task Update_PersistsSettingsQueuesRefreshAndServesCustomCss()
     {
         const string expectedCustomCss = "#progressbar { visibility: hidden }";

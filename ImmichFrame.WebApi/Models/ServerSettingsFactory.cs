@@ -110,7 +110,9 @@ public static class ServerSettingsFactory
     {
         ArgumentNullException.ThrowIfNull(settings);
 
-        var input = $"{settings.ImmichServerUrl}\n{settings.ApiKey}\n{settings.ApiKeyFile}";
+        // ApiKeyFile is intentionally omitted here because bootstrap cloning flattens
+        // file-backed credentials into ApiKey before runtime settings are compared.
+        var input = $"{settings.ImmichServerUrl}\n{settings.ApiKey}";
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
         return Convert.ToHexString(bytes);
     }
