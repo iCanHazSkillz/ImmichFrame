@@ -92,6 +92,7 @@ public class OpenWeatherMapService : IWeatherService
         }
 
         ApiCache? oldCache = null;
+        ApiCache? newCache = null;
         lock (_sync)
         {
             if (_cacheVersion == version)
@@ -100,11 +101,12 @@ public class OpenWeatherMapService : IWeatherService
             }
 
             oldCache = _weatherCache;
-            _weatherCache = new ApiCache(TimeSpan.FromMinutes(5));
+            newCache = new ApiCache(TimeSpan.FromMinutes(5));
+            _weatherCache = newCache;
             _cacheVersion = version;
         }
 
         oldCache?.Dispose();
-        return _weatherCache;
+        return newCache!;
     }
 }

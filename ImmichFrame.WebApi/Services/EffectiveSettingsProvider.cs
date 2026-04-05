@@ -82,7 +82,17 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
             try
             {
                 _customCssStore.Save(nextSnapshot.CustomCss);
-                var loadedCustomCss = _customCssStore.LoadEditableCss();
+                string loadedCustomCss;
+                try
+                {
+                    loadedCustomCss = _customCssStore.LoadEditableCss();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to reload saved custom CSS; using provided value.");
+                    loadedCustomCss = nextSnapshot.CustomCss;
+                }
+
                 _managedSettingsDocument = nextManagedDocument;
                 _snapshot = nextSnapshot with { CustomCss = loadedCustomCss };
                 return CloneSnapshot(_snapshot);
