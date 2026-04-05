@@ -26,8 +26,9 @@ public class IcalCalendarService : ICalendarService
 
     public async Task<List<IAppointment>> GetAppointments()
     {
-        var settings = _settingsProvider.GetCurrentSettings().GeneralSettings;
-        var cache = GetCache();
+        var snapshot = _settingsProvider.GetCurrentSnapshot();
+        var settings = snapshot.Settings.GeneralSettings;
+        var cache = GetCache(snapshot.Version);
         return await cache.GetOrAddAsync("appointments", async () =>
         {
             var appointments = new List<IAppointment>();
@@ -114,14 +115,14 @@ public class IcalCalendarService : ICalendarService
         return EncodedCalendarSegmentPattern.Replace(value.Trim(), "%");
     }
 
-    private ApiCache GetCache()
+    private ApiCache GetCache(long version)
     {
-        var version = _settingsProvider.GetCurrentVersion();
         if (_cacheVersion == version)
         {
             return _appointmentCache;
         }
 
+        ApiCache? oldCache = null;
         lock (_sync)
         {
             if (_cacheVersion == version)
@@ -129,10 +130,12 @@ public class IcalCalendarService : ICalendarService
                 return _appointmentCache;
             }
 
-            _appointmentCache.Dispose();
+            oldCache = _appointmentCache;
             _appointmentCache = new ApiCache(TimeSpan.FromMinutes(15));
             _cacheVersion = version;
-            return _appointmentCache;
         }
+
+        oldCache?.Dispose();
+        return _appointmentCache;
     }
 }

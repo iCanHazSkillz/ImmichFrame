@@ -458,3 +458,4 @@ $RECYCLE.BIN/
 ImmichFrame/Settings.json
 ImmichFrame.WebApi/Config/
 ImmichFrame.WebApi/App_Data/
+docker/data/

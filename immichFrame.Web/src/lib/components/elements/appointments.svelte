@@ -1,6 +1,6 @@
 <script lang="ts">
 	import * as api from '$lib/index';
-	import { format } from 'date-fns';
+	import { format, isSameDay, isToday, isValid } from 'date-fns';
 	import { configStore } from '$lib/stores/config.store';
 	import { clientIdentifierStore } from '$lib/stores/persist.store';
 	import {
@@ -12,8 +12,20 @@
 	api.init();
 
 	function formatTimeRange(startTime: string, endTime: string) {
+		const startDate = new Date(startTime);
+		const endDate = new Date(endTime);
+		if (!isValid(startDate) || !isValid(endDate)) {
+			return '';
+		}
+
 		const clockFormat = $configStore.clockFormat ?? 'HH:mm';
-		return `${format(new Date(startTime), clockFormat)} - ${format(new Date(endTime), clockFormat)}`;
+		if (isSameDay(startDate, endDate) && isToday(startDate)) {
+			return `${format(startDate, clockFormat)} - ${format(endDate, clockFormat)}`;
+		}
+
+		const dateFormat = $configStore.photoDateFormat ?? 'yyyy-MM-dd';
+		const dateTimeFormat = `${dateFormat} ${clockFormat}`;
+		return `${format(startDate, dateTimeFormat)} - ${format(endDate, dateTimeFormat)}`;
 	}
 
 	let appointments = $state<api.IAppointment[]>([]);

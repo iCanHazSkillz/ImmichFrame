@@ -10,5 +10,5 @@ services:
     environment:
       TZ: "${TZ:-Etc/UTC}"
     volumes:
-      - C:\Users\mmart\Documents\Immichframe_data\Config:/app/Config
-      - C:\Users\mmart\Documents\Immichframe_data\App_Data:/app/App_Data
+      - ./data/Config:/app/Config
+      - ./data/App_Data:/app/App_Data

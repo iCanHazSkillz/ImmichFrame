@@ -17,13 +17,14 @@ public class OpenWeatherMapService : IWeatherService
 
     public async Task<IWeather?> GetWeather()
     {
-        var settings = _settingsProvider.GetCurrentSettings().GeneralSettings;
+        var snapshot = _settingsProvider.GetCurrentSnapshot();
+        var settings = snapshot.Settings.GeneralSettings;
         if (!settings.ShowWeather || string.IsNullOrWhiteSpace(settings.WeatherApiKey))
         {
             return null;
         }
 
-        var cache = GetCache();
+        var cache = GetCache(snapshot.Version);
         var cachedWeather = await cache.GetOrAddAsync("weather", async () =>
         {
             var weatherLatLong = settings.WeatherLatLong;
@@ -41,7 +42,7 @@ public class OpenWeatherMapService : IWeatherService
 
     public async Task<IWeather?> GetWeather(double latitude, double longitude)
     {
-        var settings = _settingsProvider.GetCurrentSettings().GeneralSettings;
+        var settings = _settingsProvider.GetCurrentSnapshot().Settings.GeneralSettings;
         if (!settings.ShowWeather || string.IsNullOrWhiteSpace(settings.WeatherApiKey))
         {
             return null;
@@ -69,14 +70,14 @@ public class OpenWeatherMapService : IWeatherService
         return null;
     }
 
-    private ApiCache GetCache()
+    private ApiCache GetCache(long version)
     {
-        var version = _settingsProvider.GetCurrentVersion();
         if (_cacheVersion == version)
         {
             return _weatherCache;
         }
 
+        ApiCache? oldCache = null;
         lock (_sync)
         {
             if (_cacheVersion == version)
@@ -84,10 +85,12 @@ public class OpenWeatherMapService : IWeatherService
                 return _weatherCache;
             }
 
-            _weatherCache.Dispose();
+            oldCache = _weatherCache;
             _weatherCache = new ApiCache(TimeSpan.FromMinutes(5));
             _cacheVersion = version;
-            return _weatherCache;
         }
+
+        oldCache?.Dispose();
+        return _weatherCache;
     }
 }

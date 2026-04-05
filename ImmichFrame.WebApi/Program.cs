@@ -88,6 +88,7 @@ builder.Services.AddSingleton(new CustomCssStoreOptions
 });
 builder.Services.AddSingleton<IAdminManagedSettingsStore, AdminManagedSettingsStore>();
 builder.Services.AddSingleton<ICustomCssStore, CustomCssStore>();
+builder.Services.AddSingleton<ICustomCssValidator, CustomCssValidator>();
 builder.Services.AddSingleton<EffectiveSettingsProvider>();
 builder.Services.AddSingleton<IWritableEffectiveSettingsProvider>(srv => srv.GetRequiredService<EffectiveSettingsProvider>());
 builder.Services.AddSingleton<ISettingsSnapshotProvider>(srv => srv.GetRequiredService<EffectiveSettingsProvider>());

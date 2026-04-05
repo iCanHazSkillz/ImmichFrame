@@ -13,12 +13,12 @@ public sealed class BootstrapServerSettingsHolder
     public ServerSettings Settings { get; }
 }
 
-public sealed record EffectiveSettingsSnapshot(long Version, ServerSettings Settings);
+public sealed record EffectiveSettingsSnapshot(long Version, ServerSettings Settings, string CustomCss);
 
 public interface IWritableEffectiveSettingsProvider : ISettingsSnapshotProvider
 {
-    EffectiveSettingsSnapshot GetCurrentSnapshot();
-    EffectiveSettingsSnapshot Update(AdminManagedSettingsDocument settings);
+    new EffectiveSettingsSnapshot GetCurrentSnapshot();
+    EffectiveSettingsSnapshot Update(AdminManagedSettingsDocument settings, string? customCss);
 }
 
 public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvider
@@ -26,17 +26,23 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
     private readonly object _sync = new();
     private readonly ServerSettings _bootstrapSettings;
     private readonly IAdminManagedSettingsStore _store;
+    private readonly ICustomCssStore _customCssStore;
+    private readonly ILogger<EffectiveSettingsProvider> _logger;
     private EffectiveSettingsSnapshot _snapshot;
 
     public EffectiveSettingsProvider(
         BootstrapServerSettingsHolder bootstrapSettingsHolder,
-        IAdminManagedSettingsStore store)
+        IAdminManagedSettingsStore store,
+        ICustomCssStore customCssStore,
+        ILogger<EffectiveSettingsProvider> logger)
     {
         _bootstrapSettings = ServerSettingsFactory.Clone(bootstrapSettingsHolder.Settings);
         _store = store;
+        _customCssStore = customCssStore;
+        _logger = logger;
 
         var storedSettings = _store.LoadOrSeed(_bootstrapSettings);
-        _snapshot = BuildSnapshot(1, storedSettings);
+        _snapshot = BuildSnapshot(1, storedSettings, _customCssStore.LoadEditableCss());
         _store.Save(AdminManagedSettingsDocument.FromServerSettings(_snapshot.Settings));
     }
 
@@ -44,35 +50,65 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
     {
         lock (_sync)
         {
-            return _snapshot;
+            return CloneSnapshot(_snapshot);
         }
     }
 
-    public EffectiveSettingsSnapshot Update(AdminManagedSettingsDocument settings)
+    SettingsSnapshot ISettingsSnapshotProvider.GetCurrentSnapshot()
+    {
+        lock (_sync)
+        {
+            return new SettingsSnapshot(_snapshot.Version, ServerSettingsFactory.Clone(_snapshot.Settings));
+        }
+    }
+
+    public EffectiveSettingsSnapshot Update(AdminManagedSettingsDocument settings, string? customCss)
     {
         ArgumentNullException.ThrowIfNull(settings);
         settings.Normalize();
 
         lock (_sync)
         {
-            var nextSnapshot = BuildSnapshot(_snapshot.Version + 1, settings);
+            var currentSnapshot = _snapshot;
+            var currentDocument = AdminManagedSettingsDocument.FromServerSettings(currentSnapshot.Settings);
+            var nextSnapshot = BuildSnapshot(currentSnapshot.Version + 1, settings, customCss ?? string.Empty);
+
             _store.Save(AdminManagedSettingsDocument.FromServerSettings(nextSnapshot.Settings));
-            _snapshot = nextSnapshot;
-            return _snapshot;
+
+            try
+            {
+                _customCssStore.Save(nextSnapshot.CustomCss);
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    _store.Save(currentDocument);
+                }
+                catch (Exception rollbackEx)
+                {
+                    _logger.LogCritical(rollbackEx, "Failed to roll back admin-managed settings after custom CSS persistence failed.");
+                }
+
+                throw new InvalidOperationException("Failed to persist custom CSS.", ex);
+            }
+
+            _snapshot = nextSnapshot with { CustomCss = _customCssStore.LoadEditableCss() };
+            return CloneSnapshot(_snapshot);
         }
     }
 
     public IServerSettings GetCurrentSettings()
     {
-        return GetCurrentSnapshot().Settings;
+        return ((ISettingsSnapshotProvider)this).GetCurrentSnapshot().Settings;
     }
 
     public long GetCurrentVersion()
     {
-        return GetCurrentSnapshot().Version;
+        return ((ISettingsSnapshotProvider)this).GetCurrentSnapshot().Version;
     }
 
-    private EffectiveSettingsSnapshot BuildSnapshot(long version, AdminManagedSettingsDocument managedSettings)
+    private EffectiveSettingsSnapshot BuildSnapshot(long version, AdminManagedSettingsDocument managedSettings, string customCss)
     {
         var effectiveSettings = ServerSettingsFactory.Clone(_bootstrapSettings);
 
@@ -80,19 +116,44 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
         managedSettings.General.ApplyTo(effectiveSettings.GeneralSettingsImpl ??= new GeneralSettings());
 
         var effectiveAccounts = effectiveSettings.AccountsImpl.ToList();
-        for (var index = 0; index < effectiveAccounts.Count; index++)
+        var effectiveAccountsById = new Dictionary<string, ServerAccountSettings>(StringComparer.Ordinal);
+        foreach (var effectiveAccount in effectiveAccounts)
         {
-            if (index >= managedSettings.Accounts.Count)
+            var identifier = ServerSettingsFactory.BuildAccountIdentifier(effectiveAccount);
+            if (!effectiveAccountsById.TryAdd(identifier, effectiveAccount))
             {
+                _logger.LogWarning("Duplicate effective account identifier {accountIdentifier} detected while building runtime settings.", identifier);
+            }
+        }
+
+        foreach (var managedAccount in managedSettings.Accounts)
+        {
+            if (string.IsNullOrWhiteSpace(managedAccount.AccountIdentifier))
+            {
+                _logger.LogWarning("Skipping admin-managed account override because it is missing an AccountIdentifier.");
                 continue;
             }
 
-            managedSettings.Accounts[index].ApplyTo(effectiveAccounts[index]);
+            if (!effectiveAccountsById.TryGetValue(managedAccount.AccountIdentifier, out var effectiveAccount))
+            {
+                _logger.LogWarning("Skipping admin-managed account override for unknown account identifier {accountIdentifier}.", managedAccount.AccountIdentifier);
+                continue;
+            }
+
+            managedAccount.ApplyTo(effectiveAccount);
         }
 
         effectiveSettings.AccountsImpl = effectiveAccounts;
         effectiveSettings.Validate();
 
-        return new EffectiveSettingsSnapshot(version, effectiveSettings);
+        return new EffectiveSettingsSnapshot(version, effectiveSettings, customCss);
+    }
+
+    private static EffectiveSettingsSnapshot CloneSnapshot(EffectiveSettingsSnapshot snapshot)
+    {
+        return new EffectiveSettingsSnapshot(
+            snapshot.Version,
+            ServerSettingsFactory.Clone(snapshot.Settings),
+            snapshot.CustomCss);
     }
 }

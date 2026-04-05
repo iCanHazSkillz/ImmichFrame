@@ -54,8 +54,7 @@ public class IcalCalendarServiceTests
         serverSettings.SetupGet(x => x.GeneralSettings).Returns(generalSettings.Object);
 
         var settingsProvider = new Mock<ISettingsSnapshotProvider>();
-        settingsProvider.Setup(x => x.GetCurrentVersion()).Returns(1);
-        settingsProvider.Setup(x => x.GetCurrentSettings()).Returns(serverSettings.Object);
+        settingsProvider.Setup(x => x.GetCurrentSnapshot()).Returns(new SettingsSnapshot(1, serverSettings.Object));
 
         var service = new IcalCalendarService(
             settingsProvider.Object,

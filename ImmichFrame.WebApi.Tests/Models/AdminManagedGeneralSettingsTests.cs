@@ -42,6 +42,34 @@ public class AdminManagedGeneralSettingsTests
     }
 
     [Test]
+    public void DocumentNormalize_AlsoNormalizesGeneralSettings()
+    {
+        var document = new AdminManagedSettingsDocument
+        {
+            General = new AdminManagedGeneralSettings
+            {
+                ShowPeopleDesc = false,
+                ShowPeopleAge = true,
+                Webcalendars =
+                [
+                    "  https://calendar.google.com/calendar/ical/martel.s.g%%40gmail.com/public/basic.ics  "
+                ]
+            }
+        };
+
+        document.Normalize();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(document.General.ShowPeopleAge, Is.False);
+            Assert.That(document.General.Webcalendars, Is.EqualTo(new[]
+            {
+                "https://calendar.google.com/calendar/ical/martel.s.g%40gmail.com/public/basic.ics"
+            }));
+        });
+    }
+
+    [Test]
     public void ApplyTo_AndFromGeneralSettings_RoundTripPhotoTimeAgoAndPeopleAge()
     {
         var managed = new AdminManagedGeneralSettings

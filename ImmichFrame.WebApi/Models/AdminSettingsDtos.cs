@@ -33,6 +33,7 @@ public class AdminSettingsResponseDto
                 .Zip(bootstrap.Accounts, (current, bootstrapAccount) => new { Current = current, Bootstrap = bootstrapAccount })
                 .Select((pair, index) => new AdminAccountSettingsDto
                 {
+                    AccountIdentifier = ServerSettingsFactory.BuildAccountIdentifier(pair.Bootstrap),
                     AccountIndex = index,
                     AccountLabel = $"Account {index + 1}",
                     ImmichServerUrl = pair.Bootstrap.ImmichServerUrl,

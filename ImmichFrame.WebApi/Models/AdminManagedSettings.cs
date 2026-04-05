@@ -12,6 +12,7 @@ public class AdminManagedSettingsDocument
     {
         General ??= new AdminManagedGeneralSettings();
         Accounts ??= [];
+        General.Normalize();
 
         foreach (var account in Accounts)
         {
@@ -311,6 +312,7 @@ public class AdminManagedGeneralSettings
 
 public class AdminManagedAccountSettings
 {
+    public string AccountIdentifier { get; set; } = string.Empty;
     public bool ShowMemories { get; set; } = false;
     public bool ShowFavorites { get; set; } = false;
     public bool ShowArchived { get; set; } = false;
@@ -326,6 +328,7 @@ public class AdminManagedAccountSettings
 
     public void Normalize()
     {
+        AccountIdentifier = AccountIdentifier?.Trim() ?? string.Empty;
         Albums ??= [];
         ExcludedAlbums ??= [];
         People ??= [];
@@ -357,6 +360,7 @@ public class AdminManagedAccountSettings
 
         return new AdminManagedAccountSettings
         {
+            AccountIdentifier = ServerSettingsFactory.BuildAccountIdentifier(settings),
             ShowMemories = settings.ShowMemories,
             ShowFavorites = settings.ShowFavorites,
             ShowArchived = settings.ShowArchived,

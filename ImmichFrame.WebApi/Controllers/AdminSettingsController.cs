@@ -12,20 +12,20 @@ public class AdminSettingsController : ControllerBase
 {
     private readonly IWritableEffectiveSettingsProvider _settingsProvider;
     private readonly BootstrapServerSettingsHolder _bootstrapSettingsHolder;
-    private readonly ICustomCssStore _customCssStore;
+    private readonly ICustomCssValidator _customCssValidator;
     private readonly IFrameSessionRegistry _frameSessionRegistry;
     private readonly ILogger<AdminSettingsController> _logger;
 
     public AdminSettingsController(
         IWritableEffectiveSettingsProvider settingsProvider,
         BootstrapServerSettingsHolder bootstrapSettingsHolder,
-        ICustomCssStore customCssStore,
+        ICustomCssValidator customCssValidator,
         IFrameSessionRegistry frameSessionRegistry,
         ILogger<AdminSettingsController> logger)
     {
         _settingsProvider = settingsProvider;
         _bootstrapSettingsHolder = bootstrapSettingsHolder;
-        _customCssStore = customCssStore;
+        _customCssValidator = customCssValidator;
         _frameSessionRegistry = frameSessionRegistry;
         _logger = logger;
     }
@@ -38,7 +38,7 @@ public class AdminSettingsController : ControllerBase
             snapshot.Version,
             snapshot.Settings,
             _bootstrapSettingsHolder.Settings,
-            _customCssStore.LoadEditableCss()));
+            snapshot.CustomCss));
     }
 
     [HttpPut]
@@ -59,8 +59,18 @@ public class AdminSettingsController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
-        var snapshot = _settingsProvider.Update(document);
-        _customCssStore.Save(request.CustomCss);
+        string sanitizedCustomCss;
+        try
+        {
+            sanitizedCustomCss = _customCssValidator.ValidateAndSanitize(request.CustomCss);
+        }
+        catch (CustomCssValidationException ex)
+        {
+            ModelState.AddModelError(nameof(request.CustomCss), ex.Message);
+            return ValidationProblem(ModelState);
+        }
+
+        var snapshot = _settingsProvider.Update(document, sanitizedCustomCss);
 
         foreach (var session in _frameSessionRegistry.GetActiveSessions())
         {
@@ -75,6 +85,6 @@ public class AdminSettingsController : ControllerBase
             snapshot.Version,
             snapshot.Settings,
             _bootstrapSettingsHolder.Settings,
-            _customCssStore.LoadEditableCss()));
+            snapshot.CustomCss));
     }
 }

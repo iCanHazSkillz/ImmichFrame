@@ -14,6 +14,8 @@ namespace ImmichFrame.WebApi.Tests.Controllers;
 [TestFixture]
 public class AdminSettingsControllerTests
 {
+    private const string TestImmichServerUrl = "http://mock-immich-server.com";
+    private const string TestApiKey = "test-api-key";
     private WebApplicationFactory<Program> _factory = null!;
     private string _tempAppDataPath = null!;
 
@@ -45,8 +47,8 @@ public class AdminSettingsControllerTests
 
                     var accountSettings = new ServerAccountSettings
                     {
-                        ImmichServerUrl = "http://mock-immich-server.com",
-                        ApiKey = "test-api-key",
+                        ImmichServerUrl = TestImmichServerUrl,
+                        ApiKey = TestApiKey,
                         ShowFavorites = false,
                         ShowMemories = false
                     };
@@ -115,7 +117,8 @@ public class AdminSettingsControllerTests
             Assert.That(response.General.ShowWeather, Is.True);
             Assert.That(response.General.ShowCalendar, Is.True);
             Assert.That(response.Accounts, Has.Count.EqualTo(1));
-            Assert.That(response.Accounts[0].ImmichServerUrl, Is.EqualTo("http://mock-immich-server.com"));
+            Assert.That(response.Accounts[0].ImmichServerUrl, Is.EqualTo(TestImmichServerUrl));
+            Assert.That(response.Accounts[0].AccountIdentifier, Is.EqualTo(CreateAccountIdentifier()));
             Assert.That(response.BootstrapManagedFields, Does.Contain("ApiKey"));
         });
 
@@ -236,6 +239,7 @@ public class AdminSettingsControllerTests
     [Test]
     public async Task Update_PersistsSettingsQueuesRefreshAndServesCustomCss()
     {
+        const string expectedCustomCss = "#progressbar { visibility: hidden }";
         var adminClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
         {
             HandleCookies = true
@@ -289,6 +293,7 @@ public class AdminSettingsControllerTests
             [
                 new AdminManagedAccountSettings
                 {
+                    AccountIdentifier = CreateAccountIdentifier(),
                     ShowFavorites = true,
                     ShowMemories = false,
                     ShowArchived = false,
@@ -311,7 +316,7 @@ public class AdminSettingsControllerTests
             Assert.That(updatedSettings!.General.Interval, Is.EqualTo(90));
             Assert.That(updatedSettings.General.ShowClock, Is.False);
             Assert.That(updatedSettings.General.ShowWeather, Is.False);
-            Assert.That(updatedSettings.CustomCss, Is.EqualTo("#progressbar { visibility: hidden; }"));
+            Assert.That(updatedSettings.CustomCss, Is.EqualTo(expectedCustomCss));
             Assert.That(updatedSettings.Accounts[0].ShowFavorites, Is.True);
         });
 
@@ -324,11 +329,11 @@ public class AdminSettingsControllerTests
         Assert.That(persisted, Is.Not.Null);
         Assert.That(persisted!.General.Interval, Is.EqualTo(90));
         Assert.That(persisted.Accounts[0].ShowFavorites, Is.True);
-        Assert.That(persisted.CustomCss, Is.EqualTo("#progressbar { visibility: hidden; }"));
+        Assert.That(persisted.CustomCss, Is.EqualTo(expectedCustomCss));
 
         var stylesheetResponse = await _factory.CreateClient().GetAsync("/static/custom.css");
         stylesheetResponse.EnsureSuccessStatusCode();
-        Assert.That(await stylesheetResponse.Content.ReadAsStringAsync(), Is.EqualTo("#progressbar { visibility: hidden; }"));
+        Assert.That(await stylesheetResponse.Content.ReadAsStringAsync(), Is.EqualTo(expectedCustomCss));
     }
 
     [Test]
@@ -375,6 +380,7 @@ public class AdminSettingsControllerTests
             [
                 new AdminManagedAccountSettings
                 {
+                    AccountIdentifier = CreateAccountIdentifier(),
                     ShowFavorites = false,
                     ShowMemories = false,
                     ShowArchived = false,
@@ -435,6 +441,68 @@ public class AdminSettingsControllerTests
             [
                 new AdminManagedAccountSettings
                 {
+                    AccountIdentifier = CreateAccountIdentifier(),
+                    ShowFavorites = false,
+                    ShowMemories = false,
+                    ShowArchived = false,
+                    ShowVideos = false,
+                    Albums = [],
+                    ExcludedAlbums = [],
+                    People = [],
+                    Tags = []
+                }
+            ]
+        };
+
+        var response = await adminClient.PutAsJsonAsync("/api/admin/settings", updateRequest);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+    }
+
+    [Test]
+    public async Task Update_ReturnsBadRequest_WhenCustomCssContainsImport()
+    {
+        var adminClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var updateRequest = new AdminSettingsUpdateRequest
+        {
+            General = new AdminManagedGeneralSettings
+            {
+                Interval = 45,
+                ShowClock = true,
+                ShowWeather = false,
+                ShowCalendar = false,
+                ClockFormat = "hh:mm",
+                ClockDateFormat = "eee, MMM d",
+                PhotoDateFormat = "MM/dd/yyyy",
+                ImageLocationFormat = "City,State,Country",
+                Layout = "splitview",
+                Language = "en",
+                ShowProgressBar = true,
+                ShowPhotoDate = true,
+                ShowImageDesc = true,
+                ShowPeopleDesc = true,
+                ShowTagsDesc = true,
+                ShowAlbumName = true,
+                ShowImageLocation = true,
+                ShowWeatherDescription = true,
+                ImageZoom = true,
+                ImagePan = false,
+                ImageFill = false,
+                PlayAudio = false,
+                Style = "none",
+                Webcalendars = []
+            },
+            CustomCss = "@import url('https://example.com/evil.css');",
+            Accounts =
+            [
+                new AdminManagedAccountSettings
+                {
+                    AccountIdentifier = CreateAccountIdentifier(),
                     ShowFavorites = false,
                     ShowMemories = false,
                     ShowArchived = false,
@@ -461,5 +529,14 @@ public class AdminSettingsControllerTests
         });
 
         Assert.That(loginResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK), await loginResponse.Content.ReadAsStringAsync());
+    }
+
+    private static string CreateAccountIdentifier()
+    {
+        return ServerSettingsFactory.BuildAccountIdentifier(new ServerAccountSettings
+        {
+            ImmichServerUrl = TestImmichServerUrl,
+            ApiKey = TestApiKey
+        });
     }
 }

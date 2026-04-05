@@ -271,6 +271,7 @@
 			general: settings.general,
 			customCss: settings.customCss,
 			accounts: settings.accounts.map((account) => ({
+				accountIdentifier: account.accountIdentifier,
 				showMemories: account.showMemories,
 				showFavorites: account.showFavorites,
 				showArchived: account.showArchived,
@@ -508,6 +509,7 @@
 				general: draft.general,
 				customCss: draft.customCss,
 				accounts: draft.accounts.map((account) => ({
+					accountIdentifier: account.accountIdentifier,
 					showMemories: account.showMemories,
 					showFavorites: account.showFavorites,
 					showArchived: account.showArchived,

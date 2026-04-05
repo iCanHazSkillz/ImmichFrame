@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using ImmichFrame.Core.Interfaces;
 
 namespace ImmichFrame.WebApi.Models;
@@ -102,5 +104,14 @@ public static class ServerSettingsFactory
             Tags = settings.Tags.ToList(),
             Rating = settings.Rating
         };
+    }
+
+    public static string BuildAccountIdentifier(IAccountSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        var input = $"{settings.ImmichServerUrl}\n{settings.ApiKey}\n{settings.ApiKeyFile}";
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(bytes);
     }
 }

@@ -29,10 +29,17 @@
 
 	let customRequested = $state(false);
 
-	const hasPresetMatch = $derived(options.some((option) => option.value === (value ?? '').trim()));
+	function normalizeValue(next: string | null | undefined) {
+		const normalized = next?.trim() ?? '';
+		return normalized.length ? normalized : null;
+	}
+
+	const normalizedValue = $derived(normalizeValue(value));
+
+	const hasPresetMatch = $derived(options.some((option) => option.value === (normalizedValue ?? '')));
 
 	const showCustomInput = $derived(
-		allowCustom && (customRequested || (Boolean((value ?? '').trim()) && !hasPresetMatch))
+		allowCustom && (customRequested || (Boolean(normalizedValue) && !hasPresetMatch))
 	);
 
 	const selectedValue = $derived.by(() => {
@@ -40,11 +47,11 @@
 			return CUSTOM_VALUE;
 		}
 
-		return (value ?? '').trim();
+		return normalizedValue ?? '';
 	});
 
 	const selectedHint = $derived.by(() => {
-		const current = options.find((option) => option.value === (value ?? '').trim());
+		const current = options.find((option) => option.value === (normalizedValue ?? ''));
 		return current?.hint ?? '';
 	});
 
@@ -58,13 +65,13 @@
 		if (next === CUSTOM_VALUE) {
 			customRequested = true;
 			if (hasPresetMatch) {
-				value = '';
+				value = null;
 			}
 			return;
 		}
 
 		customRequested = false;
-		value = next.length ? next : null;
+		value = normalizeValue(next);
 	}
 </script>
 
@@ -92,9 +99,9 @@
 		<input
 			type="text"
 			class="w-full rounded-2xl border border-white/12 bg-stone-950/85 px-4 py-3 text-sm text-stone-100 outline-none transition placeholder:text-stone-500 focus:border-[color:var(--primary-color)]/75"
-			value={value ?? ''}
+			value={normalizedValue ?? ''}
 			placeholder={customPlaceholder}
-			oninput={(event) => (value = (event.currentTarget as HTMLInputElement).value)}
+			oninput={(event) => (value = normalizeValue((event.currentTarget as HTMLInputElement).value))}
 		/>
 	{:else if selectedHint}
 		<p class="text-xs text-stone-500">{selectedHint}</p>

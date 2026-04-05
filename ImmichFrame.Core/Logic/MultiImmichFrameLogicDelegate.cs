@@ -57,31 +57,31 @@ public class MultiImmichFrameLogicDelegate : IImmichFrameLogic
 
     private DelegateState GetState()
     {
-        var version = _settingsProvider.GetCurrentVersion();
-        var currentSettings = _settingsProvider.GetCurrentSettings();
+        var snapshot = _settingsProvider.GetCurrentSnapshot();
 
         lock (_sync)
         {
-            if (_state != null && _state.Version == version)
+            if (_state != null && _state.Version == snapshot.Version)
             {
                 return _state;
             }
 
-            _logger.LogInformation("Reloading effective settings snapshot version {version}.", version);
-            _state = BuildState(version, currentSettings);
+            _logger.LogInformation("Reloading effective settings snapshot version {version}.", snapshot.Version);
+            _state = BuildState(snapshot);
             return _state;
         }
     }
 
-    private DelegateState BuildState(long version, IServerSettings settings)
+    private DelegateState BuildState(SettingsSnapshot snapshot)
     {
+        var settings = snapshot.Settings;
         var accountToDelegate = settings.Accounts
             .ToFrozenDictionary(keySelector: account => account, elementSelector: LogicFactory);
 
         var accountSelectionStrategy = _accountSelectionStrategyFactory();
         accountSelectionStrategy.Initialize(accountToDelegate.Values.ToList());
 
-        return new DelegateState(version, settings, accountToDelegate, accountSelectionStrategy);
+        return new DelegateState(snapshot.Version, settings, accountToDelegate, accountSelectionStrategy);
     }
 
     private sealed record DelegateState(

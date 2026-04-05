@@ -111,6 +111,7 @@ export interface AdminManagedGeneralSettings {
 }
 
 export interface AdminManagedAccountSettings {
+	accountIdentifier: string;
 	showMemories: boolean;
 	showFavorites: boolean;
 	showArchived: boolean;
