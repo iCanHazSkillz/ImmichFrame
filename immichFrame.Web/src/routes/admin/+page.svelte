@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { mdiCheck, mdiLogout, mdiPencilOutline } from '@mdi/js';
+	import { mdiCheck, mdiCogOutline, mdiEyeOffOutline, mdiEyeOutline, mdiLogout, mdiPencilOutline } from '@mdi/js';
 	import { onDestroy, onMount } from 'svelte';
 	import ErrorElement from '$lib/components/elements/error-element.svelte';
 	import Icon from '$lib/components/elements/icon.svelte';
@@ -39,6 +39,7 @@
 	let authErrorMessage = $state('');
 	let loginUsername = $state('');
 	let loginPassword = $state('');
+	let showLoginPassword = $state(false);
 	let loginPending = $state(false);
 	let nowMs = $state(Date.now());
 	let actionState: Record<string, FrameAdminCommandType | null> = $state({});
@@ -277,6 +278,7 @@
 		};
 		authErrorMessage = message;
 		loginPassword = '';
+		showLoginPassword = false;
 		stopRefreshing();
 		clearDashboardState();
 	}
@@ -348,6 +350,7 @@
 		try {
 			adminSession = await loginAdmin(loginUsername.trim(), loginPassword);
 			loginPassword = '';
+			showLoginPassword = false;
 			await loadSessions(true);
 			startRefreshing();
 		} catch (err) {
@@ -562,13 +565,30 @@
 
 				<label class="flex flex-col gap-2">
 					<span class="text-sm font-medium text-stone-200">Password</span>
-					<input
-						class="rounded-2xl border border-white/12 bg-stone-950/85 px-4 py-3 text-stone-100 outline-none transition placeholder:text-stone-500 focus:border-[color:var(--primary-color)]/75"
-						type="password"
-						autocomplete="current-password"
-						bind:value={loginPassword}
-						placeholder="Password"
-					/>
+					<div class="relative">
+						<input
+							class="w-full rounded-2xl border border-white/12 bg-stone-950/85 px-4 py-3 pr-14 text-stone-100 outline-none transition placeholder:text-stone-500 focus:border-[color:var(--primary-color)]/75"
+							type={showLoginPassword ? 'text' : 'password'}
+							autocomplete="current-password"
+							bind:value={loginPassword}
+							placeholder="Password"
+						/>
+						<button
+							class="absolute inset-y-0 right-0 inline-flex items-center justify-center px-4 text-stone-300 transition hover:text-stone-100"
+							type="button"
+							aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
+							aria-pressed={showLoginPassword}
+							onclick={() => {
+								showLoginPassword = !showLoginPassword;
+							}}
+						>
+							<Icon
+								path={showLoginPassword ? mdiEyeOffOutline : mdiEyeOutline}
+								title={showLoginPassword ? 'Hide password' : 'Show password'}
+								size="1.1rem"
+							/>
+						</button>
+					</div>
 				</label>
 
 				{#if authErrorMessage}
@@ -607,6 +627,13 @@
 						</div>
 
 						<div class="flex flex-wrap items-center gap-3">
+							<a
+								class="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-sm text-stone-100 transition hover:bg-white/10"
+								href="/admin/settings"
+							>
+								<Icon path={mdiCogOutline} title="Open settings" size="1rem" />
+								Settings
+							</a>
 							<span class="rounded-full border border-white/12 bg-black/25 px-4 py-2 text-sm text-stone-300">
 								Signed in as {adminSession.username}
 							</span>

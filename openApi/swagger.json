@@ -881,10 +881,16 @@
             "type": "string",
             "nullable": true
           },
+          "showPhotoTimeAgo": {
+            "type": "boolean"
+          },
           "showImageDesc": {
             "type": "boolean"
           },
           "showPeopleDesc": {
+            "type": "boolean"
+          },
+          "showPeopleAge": {
             "type": "boolean"
           },
           "showTagsDesc": {

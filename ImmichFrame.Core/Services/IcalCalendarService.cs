@@ -8,35 +8,47 @@ using Microsoft.Extensions.Logging;
 
 public class IcalCalendarService : ICalendarService
 {
-    private readonly IGeneralSettings _serverSettings;
+    private readonly ISettingsSnapshotProvider _settingsProvider;
     private readonly ILogger<IcalCalendarService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly ApiCache _appointmentCache = new(TimeSpan.FromMinutes(15));
+    private readonly object _sync = new();
+    private ApiCache _appointmentCache = new(TimeSpan.FromMinutes(15));
+    private long _cacheVersion = -1;
 
-    public IcalCalendarService(IGeneralSettings serverSettings, ILogger<IcalCalendarService> logger, IHttpClientFactory httpClientFactory)
+    public IcalCalendarService(ISettingsSnapshotProvider settingsProvider, ILogger<IcalCalendarService> logger, IHttpClientFactory httpClientFactory)
     {
         _logger = logger;
-        _serverSettings = serverSettings;
+        _settingsProvider = settingsProvider;
         _httpClientFactory = httpClientFactory;
     }
 
     public async Task<List<IAppointment>> GetAppointments()
     {
-        return await _appointmentCache.GetOrAddAsync("appointments", async () =>
+        var snapshot = _settingsProvider.GetCurrentSnapshot();
+        var settings = snapshot.Settings.GeneralSettings;
+        var cache = GetCache(snapshot.Version);
+        return await cache.GetOrAddAsync("appointments", async () =>
         {
             var appointments = new List<IAppointment>();
 
-            List<(string? auth, string url)> cals = _serverSettings.Webcalendars.Select<string, (string? auth, string url)?>(x =>
+            List<(string? auth, string url)> cals = settings.Webcalendars.Select<string, (string? auth, string url)?>(x =>
             {
                 try
                 {
-                    var uri = new Uri(x.Replace("webcal://", "https://"));
+                    var normalizedUrl = NormalizeCalendarUrl(x);
+                    if (string.IsNullOrWhiteSpace(normalizedUrl))
+                    {
+                        return null;
+                    }
+
+                    var httpUrl = normalizedUrl.Replace("webcal://", "https://", StringComparison.OrdinalIgnoreCase);
+                    var uri = new Uri(httpUrl);
                     if (!string.IsNullOrEmpty(uri.UserInfo))
                     {
                         var url = uri.GetComponents(UriComponents.AbsoluteUri & ~UriComponents.UserInfo, UriFormat.UriEscaped);
                         return (Uri.UnescapeDataString(uri.UserInfo), url);
                     }
-                    return (null, x);
+                    return (null, httpUrl);
                 }
                 catch (UriFormatException)
                 {
@@ -68,6 +80,7 @@ public class IcalCalendarService : ICalendarService
             _logger.LogDebug($"Loading calendar: {(calendar.auth != null ? "[authenticated]" : "no auth")} - {calendar.url}");
 
             string httpUrl = calendar.url.Replace("webcal://", "https://");
+            httpUrl = NormalizeCalendarUrl(httpUrl);
 
             using var request = new HttpRequestMessage(HttpMethod.Get, httpUrl);
 
@@ -89,5 +102,36 @@ public class IcalCalendarService : ICalendarService
         }
 
         return icals;
+    }
+
+    private static string NormalizeCalendarUrl(string? value)
+    {
+        return CalendarUrlNormalizer.Normalize(value);
+    }
+
+    private ApiCache GetCache(long version)
+    {
+        if (_cacheVersion == version)
+        {
+            return _appointmentCache;
+        }
+
+        ApiCache? oldCache = null;
+        ApiCache? newCache = null;
+        lock (_sync)
+        {
+            if (_cacheVersion == version)
+            {
+                return _appointmentCache;
+            }
+
+            oldCache = _appointmentCache;
+            newCache = new ApiCache(TimeSpan.FromMinutes(15));
+            _appointmentCache = newCache;
+            _cacheVersion = version;
+        }
+
+        oldCache?.Dispose();
+        return newCache!;
     }
 }

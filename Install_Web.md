@@ -23,7 +23,8 @@ ImmichFrame Web is installed via [Docker 🐋](#-docker-compose)
 ### Docker Compose with environment variables
 
 > [!NOTE]  
-> Not every setting is needed. Only configure what you need!
+> Not every setting is needed. Only configure what you need.
+> Runtime-editable settings can now be managed later from `/admin/settings`, so most installs only need the bootstrap values shown below.
 
 ```yaml
 name: immichframe
@@ -38,49 +39,9 @@ services:
       TZ: "Europe/Berlin"
       ImmichServerUrl: "URL"
       ApiKey: "KEY"
+      # IMMICHFRAME_AUTH_BASIC_ADMIN_USER: "admin"
+      # IMMICHFRAME_AUTH_BASIC_ADMIN_HASH: "$$apr1$$..."
       # AuthenticationSecret: ""
-      # Interval: "10"
-      # TransitionDuration: "2"
-      # ImageZoom: "true"
-      # ImagePan: "false"
-      # ImageFill: "false"
-      # Layout: "splitview"         
-      # DownloadImages: "false"
-      # ShowMemories: "false"
-      # ShowFavorites: "false"
-      # ShowArchived: "false"
-      # ImagesFromDays: ""
-      # ImagesFromDate: ""
-      # ImagesUntilDate: ""
-      # RenewImagesDuration: "30"
-      # Rating: "5"
-      # Albums: "ALBUM1,ALBUM2"
-      # ExcludedAlbums: "ALBUM3,ALBUM4"
-      # People: "PERSON1,PERSON2"
-      # Webcalendars: "https://calendar.mycalendar.com/basic.ics,webcal://calendar.mycalendar.com/basic.ics"
-      # RefreshAlbumPeopleInterval: "12"
-      # ShowClock: "true"
-      # ClockFormat: "hh:mm"
-      # ClockDateFormat: "eee, MMM d"
-      # ShowProgressBar: "true"
-      # ShowPhotoDate: "true"
-      # PhotoDateFormat: "yyyy-MM-dd"
-      # ShowImageDesc: "true"
-      # ShowPeopleDesc: "true"
-      # ShowAlbumName: "true"
-      # ShowImageLocation: "true"
-      # ImageLocationFormat: "City,State,Country"
-      # PrimaryColor: "#F5DEB3"
-      # SecondaryColor: "#000000"
-      # Style: "none"
-      # BaseFontSize: "17px"
-      # WeatherApiKey: ""
-      # ShowWeatherDescription: "true"
-      # WeatherIconUrl: "https://openweathermap.org/img/wn/{IconId}.png"
-      # UnitSystem: "imperial"
-      # WeatherLatLong: ""
-      # Language: "en"      
-      # Webhook: ""
 ```
 
 ### Docker Compose with Settings.json
@@ -129,6 +90,15 @@ services:
 For more information, read [here](/README.md#configuration).
 
 The frame UI and the admin dashboard are both available on `http://HOST:8080`, with the admin dashboard at `http://HOST:8080/admin`.
+
+Bootstrap config is still loaded from `Settings.json`, `Settings.yml`, `Settings.yaml`, or environment variables at startup. After the app starts, runtime-editable settings are stored separately in `App_Data/admin-settings.json` and managed from `http://HOST:8080/admin/settings`.
+
+For new installs, the bootstrap config typically only needs:
+
+- `ImmichServerUrl`
+- `ApiKey` or `ApiKeyFile`
+- `IMMICHFRAME_AUTH_BASIC_*` values for admin login
+- Optional `AuthenticationSecret` if you use bearer protection for frames
 
 To enable the admin login page, add at least one matching `IMMICHFRAME_AUTH_BASIC_*_USER` and `IMMICHFRAME_AUTH_BASIC_*_HASH` pair to your environment or `.env` file. These env values remain the source of truth for admin users, and the `/admin` page signs in against them with a normal session cookie.
 

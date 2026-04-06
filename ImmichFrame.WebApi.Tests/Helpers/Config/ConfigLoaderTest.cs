@@ -111,6 +111,10 @@ public class ConfigLoaderTest
                     {
                         Assert.That(value, Is.EqualTo(null), prop.Name);
                     }
+                    else if (prop.Name.Equals("AccountIdentifier"))
+                    {
+                        Assert.That(value, Is.EqualTo(string.Empty), prop.Name);
+                    }
                     else
                     {
                         Assert.That(value, Is.EqualTo(prefix + prop.Name + "_TEST"), prop.Name);
