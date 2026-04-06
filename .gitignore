@@ -456,6 +456,6 @@ $RECYCLE.BIN/
 
 ## Ignore Settings file
 ImmichFrame/Settings.json
-ImmichFrame.WebApi/Config/Settings.json
-ImmichFrame.WebApi/App_Data/admin-account.json
-ImmichFrame.WebApi/App_Data/frame-session-display-names.json
+ImmichFrame.WebApi/Config/
+ImmichFrame.WebApi/App_Data/
+docker/data/

@@ -9,51 +9,86 @@ namespace ImmichFrame.Core.Logic;
 
 public class MultiImmichFrameLogicDelegate : IImmichFrameLogic
 {
-    private readonly FrozenDictionary<IAccountSettings, IAccountImmichFrameLogic> _accountToDelegate;
-    private readonly IServerSettings _serverSettings;
-    private readonly IAccountSelectionStrategy _accountSelectionStrategy;
+    private readonly object _sync = new();
+    private readonly ISettingsSnapshotProvider _settingsProvider;
+    private readonly Func<IAccountSelectionStrategy> _accountSelectionStrategyFactory;
+    private DelegateState? _state;
     private readonly ILogger<MultiImmichFrameLogicDelegate> _logger;
 
-    public MultiImmichFrameLogicDelegate(IServerSettings serverSettings,
-        Func<IAccountSettings, IAccountImmichFrameLogic> logicFactory, ILogger<MultiImmichFrameLogicDelegate> logger,
-        IAccountSelectionStrategy accountSelectionStrategy)
+    public MultiImmichFrameLogicDelegate(
+        ISettingsSnapshotProvider settingsProvider,
+        Func<IAccountSettings, IAccountImmichFrameLogic> logicFactory,
+        Func<IAccountSelectionStrategy> accountSelectionStrategyFactory,
+        ILogger<MultiImmichFrameLogicDelegate> logger)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _accountSelectionStrategy = accountSelectionStrategy;
-        _serverSettings = serverSettings;
-        _accountToDelegate = serverSettings.Accounts.ToFrozenDictionary(
-            keySelector: a => a,
-            elementSelector: logicFactory
-        );
-        _accountSelectionStrategy.Initialize(_accountToDelegate.Values);
+        _settingsProvider = settingsProvider;
+        _accountSelectionStrategyFactory = accountSelectionStrategyFactory;
+        LogicFactory = logicFactory;
     }
 
-    public async Task<AssetResponseDto?> GetNextAsset() => (await _accountSelectionStrategy.GetNextAsset())?.ToAsset();
+    private Func<IAccountSettings, IAccountImmichFrameLogic> LogicFactory { get; }
 
+    public async Task<AssetResponseDto?> GetNextAsset() => (await GetState().AccountSelectionStrategy.GetNextAsset())?.ToAsset();
 
     public async Task<IEnumerable<AssetResponseDto>> GetAssets()
-        => (await _accountSelectionStrategy.GetAssets()).Shuffle().Select(it => it.ToAsset());
+        => (await GetState().AccountSelectionStrategy.GetAssets()).Shuffle().Select(it => it.ToAsset());
 
 
     public Task<AssetResponseDto> GetAssetInfoById(Guid assetId)
-        => _accountSelectionStrategy.ForAsset(assetId, async logic => (await logic.GetAssetInfoById(assetId)).WithAccount(logic));
+        => GetState().AccountSelectionStrategy.ForAsset(assetId, async logic => (await logic.GetAssetInfoById(assetId)).WithAccount(logic));
 
 
     public Task<IEnumerable<AlbumResponseDto>> GetAlbumInfoById(Guid assetId)
-        => _accountSelectionStrategy.ForAsset(assetId, logic => logic.GetAlbumInfoById(assetId));
+        => GetState().AccountSelectionStrategy.ForAsset(assetId, logic => logic.GetAlbumInfoById(assetId));
 
 
     public Task<AssetResponse> GetAsset(Guid assetId, AssetTypeEnum? assetType = null, string? rangeHeader = null)
-        => _accountSelectionStrategy.ForAsset(assetId, logic => logic.GetAsset(assetId, assetType, rangeHeader));
+        => GetState().AccountSelectionStrategy.ForAsset(assetId, logic => logic.GetAsset(assetId, assetType, rangeHeader));
 
     public async Task<long> GetTotalAssets()
     {
-        var allInts = await Task.WhenAll(_accountToDelegate.Values.Select(account => account.GetTotalAssets()));
+        var allInts = await Task.WhenAll(GetState().AccountToDelegate.Values.Select(account => account.GetTotalAssets()));
         return allInts.Sum();
     }
 
     public Task SendWebhookNotification(IWebhookNotification notification) =>
-        WebhookHelper.SendWebhookNotification(notification, _serverSettings.GeneralSettings.Webhook);
+        WebhookHelper.SendWebhookNotification(notification, GetState().Settings.GeneralSettings.Webhook);
+
+    private DelegateState GetState()
+    {
+        var snapshot = _settingsProvider.GetCurrentSnapshot();
+
+        lock (_sync)
+        {
+            if (_state != null && _state.Version == snapshot.Version)
+            {
+                return _state;
+            }
+
+            _logger.LogInformation("Reloading effective settings snapshot version {version}.", snapshot.Version);
+            _state = BuildState(snapshot);
+            return _state;
+        }
+    }
+
+    private DelegateState BuildState(SettingsSnapshot snapshot)
+    {
+        var settings = snapshot.Settings;
+        var accountToDelegate = settings.Accounts
+            .ToFrozenDictionary(keySelector: account => account, elementSelector: LogicFactory);
+
+        var accountSelectionStrategy = _accountSelectionStrategyFactory();
+        accountSelectionStrategy.Initialize(accountToDelegate.Values.ToList());
+
+        return new DelegateState(snapshot.Version, settings, accountToDelegate, accountSelectionStrategy);
+    }
+
+    private sealed record DelegateState(
+        long Version,
+        IServerSettings Settings,
+        FrozenDictionary<IAccountSettings, IAccountImmichFrameLogic> AccountToDelegate,
+        IAccountSelectionStrategy AccountSelectionStrategy);
 }
 
 public static class AccountAndAssetExtensions

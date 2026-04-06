@@ -72,25 +72,44 @@ var configPath = Environment.GetEnvironmentVariable("IMMICHFRAME_CONFIG_PATH") ?
         Directory.EnumerateDirectories(AppDomain.CurrentDomain.BaseDirectory, "*", SearchOption.TopDirectoryOnly)
         .FirstOrDefault(d => string.Equals(Path.GetFileName(d), "Config", StringComparison.OrdinalIgnoreCase))
         ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Config");
+var appDataPath = Environment.GetEnvironmentVariable("IMMICHFRAME_APP_DATA_PATH") ??
+    Path.Combine(builder.Environment.ContentRootPath, "App_Data");
 builder.Services.AddTransient<ConfigLoader>();
-builder.Services.AddSingleton<IServerSettings>(srv => srv.GetRequiredService<ConfigLoader>().LoadConfig(configPath));
-
-// Register sub-settings
-builder.Services.AddSingleton<IGeneralSettings>(srv => srv.GetRequiredService<IServerSettings>().GeneralSettings);
+builder.Services.AddSingleton(srv =>
+    new BootstrapServerSettingsHolder(ServerSettingsFactory.Clone(srv.GetRequiredService<ConfigLoader>().LoadConfig(configPath))));
+builder.Services.AddSingleton(new AdminManagedSettingsStoreOptions
+{
+    StorePath = Path.Combine(appDataPath, "admin-settings.json")
+});
+builder.Services.AddSingleton(new CustomCssStoreOptions
+{
+    StorePath = Path.Combine(appDataPath, "custom.css"),
+    FallbackPath = Path.Combine(builder.Environment.WebRootPath ?? Path.Combine(builder.Environment.ContentRootPath, "wwwroot"), "static", "custom.css")
+});
+builder.Services.AddSingleton<IAdminManagedSettingsStore, AdminManagedSettingsStore>();
+builder.Services.AddSingleton<ICustomCssStore, CustomCssStore>();
+builder.Services.AddSingleton<ICustomCssValidator, CustomCssValidator>();
+builder.Services.AddSingleton<EffectiveSettingsProvider>();
+builder.Services.AddSingleton<IWritableEffectiveSettingsProvider>(srv => srv.GetRequiredService<EffectiveSettingsProvider>());
+builder.Services.AddSingleton<ISettingsSnapshotProvider>(srv => srv.GetRequiredService<EffectiveSettingsProvider>());
+builder.Services.AddSingleton<DynamicGeneralSettings>();
+builder.Services.AddSingleton<DynamicServerSettings>();
+builder.Services.AddSingleton<IGeneralSettings>(srv => srv.GetRequiredService<DynamicGeneralSettings>());
+builder.Services.AddSingleton<IServerSettings>(srv => srv.GetRequiredService<DynamicServerSettings>());
 
 // Register services
 builder.Services.AddSingleton<IWeatherService, OpenWeatherMapService>();
 builder.Services.AddSingleton<ICalendarService, IcalCalendarService>();
-builder.Services.AddSingleton<IAssetAccountTracker, BloomFilterAssetAccountTracker>();
-builder.Services.AddSingleton<IAccountSelectionStrategy, TotalAccountImagesSelectionStrategy>();
+builder.Services.AddTransient<IAssetAccountTracker, BloomFilterAssetAccountTracker>();
+builder.Services.AddTransient<IAccountSelectionStrategy, TotalAccountImagesSelectionStrategy>();
+builder.Services.AddSingleton<Func<IAccountSelectionStrategy>>(srv =>
+    () => srv.GetRequiredService<IAccountSelectionStrategy>());
 builder.Services.AddHttpClient(); // Ensures IHttpClientFactory is available
 
 builder.Services.AddTransient<Func<IAccountSettings, IAccountImmichFrameLogic>>(srv =>
     account => ActivatorUtilities.CreateInstance<PooledImmichFrameLogic>(srv, account));
 
 builder.Services.AddSingleton<IImmichFrameLogic, MultiImmichFrameLogicDelegate>();
-var appDataPath = Environment.GetEnvironmentVariable("IMMICHFRAME_APP_DATA_PATH") ??
-    Path.Combine(builder.Environment.ContentRootPath, "App_Data");
 builder.Services.AddSingleton(new FrameSessionRegistryOptions
 {
     DisplayNameStorePath = Path.Combine(appDataPath, "frame-session-display-names.json")
@@ -181,6 +200,21 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseForwardedHeaders();
+app.Use(async (context, next) =>
+{
+    if (!context.Request.Path.Equals("/static/custom.css", StringComparison.OrdinalIgnoreCase))
+    {
+        await next();
+        return;
+    }
+
+    var customCssStore = context.RequestServices.GetRequiredService<ICustomCssStore>();
+    context.Response.ContentType = "text/css; charset=utf-8";
+    context.Response.Headers.CacheControl = "no-store, no-cache, must-revalidate, max-age=0";
+    context.Response.Headers.Pragma = "no-cache";
+    context.Response.Headers.Expires = "0";
+    await context.Response.WriteAsync(customCssStore.LoadStylesheetContent());
+});
 app.UseStaticFiles();
 if (app.Environment.IsProduction())
 {

@@ -19,6 +19,24 @@ Inside the configuration directory, ImmichFrame loads the first of these files:
 If none of these files are found, ImmichFrame loads its config from environment
 variables.
 
+## Bootstrap config vs runtime config
+
+ImmichFrame now has two configuration layers:
+
+- Bootstrap config:
+  Loaded at startup from `Settings.json`, `Settings.yml`, `Settings.yaml`, or environment variables.
+- Runtime admin config:
+  Stored in `App_Data/admin-settings.json` and managed from `/admin/settings`.
+
+Runtime-admin settings are merged on top of the bootstrap config. In practice, the bootstrap config usually only needs:
+
+- `ImmichServerUrl`
+- `ApiKey` or `ApiKeyFile`
+- `IMMICHFRAME_AUTH_BASIC_*` admin credentials
+- Optional `AuthenticationSecret` if you require bearer auth for frame clients
+
+The `/admin/settings` page is now the recommended place to manage display settings, weather, calendars, webhooks, and non-secret account filters after the first startup.
+
 ### Full configuration reference:
 
 :::warning
@@ -188,6 +206,8 @@ ImmichFrame can be configured to access multiple Immich accounts, on the same or
 
 Images will be drawn from each account proportionally based on the total number of images present in each account (not included filtering, this is not yet implemented).
 
+When using the admin settings page, bootstrap account definitions still come from `Settings.*` or environment variables. The runtime admin layer can then override the non-secret filters for those existing accounts without changing the bootstrap server URLs or API keys.
+
 ### API Key Permissions
 For full ImmichFrame functionality, the API key being used needs the following permissions:
 
@@ -205,17 +225,20 @@ For full ImmichFrame functionality, the API key being used needs the following p
 
 ### Custom CSS
 ImmichFrame can be customized even further using CSS. This will apply to browsers, and apps using WebView (i.e. everything but Frameo and AppleTV):
-- Create a custom.css file somewhere on your host server with your desired content, for example:  
+- The recommended way is to manage custom CSS from `/admin/settings`. ImmichFrame stores that CSS in `App_Data/custom.css` and serves it at `/static/custom.css`.
+- If you prefer file-based management, place your CSS in `App_Data/custom.css` inside the app data volume, for example:
 ```css
 #progressbar {  
   visibility: hidden;  
 }
 ```
-- Add an entry in your immichframe compose pointing to it:  
+- Make sure your compose file includes the `App_Data` volume:
 ```
 volumes:  
-      - /PATH/TO/YOUR/custom.css:/app/wwwroot/static/custom.css
+      - /PATH/TO/APPDATA:/app/App_Data
 ```
+
+The app still loads the stylesheet from `/static/custom.css`; only the storage location has changed.
 
 
 [openweathermap-url]: https://openweathermap.org/appid

@@ -1,33 +1,49 @@
 <script lang="ts">
 	import * as api from '$lib/index';
-	import { onMount } from 'svelte';
-	import { format } from 'date-fns';
+	import { format, isSameDay, isToday, isValid } from 'date-fns';
 	import { configStore } from '$lib/stores/config.store';
 	import { clientIdentifierStore } from '$lib/stores/persist.store';
+	import {
+		normalizeWidgetPosition,
+		resolveWidgetStyle,
+		getWidgetSurfaceClass
+	} from '$lib/widget-layout';
 
 	api.init();
 
-	function formatDates(startTime: string, endTime: string) {
-		let startDate = new Date(startTime);
-		let endDate = new Date(endTime);
-		let sameDay = startDate.getDate() == endDate.getDate();
-
-		let clockFormat = $configStore.clockFormat ?? 'HH:mm';
-		let clockDateFormat = $configStore.clockDateFormat ?? 'eee, MMM d';
-		let fullFormat = clockDateFormat + ' ' + clockFormat;
-
-		if (sameDay) {
-			return format(startDate, clockFormat) + ' - ' + format(endDate, clockFormat);
+	function formatTimeRange(startTime: string, endTime: string) {
+		const startDate = new Date(startTime);
+		const endDate = new Date(endTime);
+		if (!isValid(startDate) || !isValid(endDate)) {
+			return '';
 		}
 
-		return format(startDate, fullFormat) + ' - ' + format(endDate, fullFormat);
+		const clockFormat = $configStore.clockFormat ?? 'HH:mm';
+		if (isSameDay(startDate, endDate) && isToday(startDate)) {
+			return `${format(startDate, clockFormat)} - ${format(endDate, clockFormat)}`;
+		}
+
+		const dateFormat = $configStore.photoDateFormat ?? 'yyyy-MM-dd';
+		const dateTimeFormat = `${dateFormat} ${clockFormat}`;
+		return `${format(startDate, dateTimeFormat)} - ${format(endDate, dateTimeFormat)}`;
 	}
 
-	let appointments: api.IAppointment[] = $state() as api.IAppointment[];
+	let appointments = $state<api.IAppointment[]>([]);
+	const resolvedStyle = $derived(
+		resolveWidgetStyle($configStore.calendarStyle, $configStore.style)
+	);
+	const resolvedPosition = $derived(
+		normalizeWidgetPosition($configStore.calendarPosition, 'top-right')
+	);
 
-	onMount(() => {
-		GetAppointments();
-		const appointmentInterval = setInterval(() => GetAppointments(), 10 * 60 * 1000); //every 10 minutes
+	$effect(() => {
+		if (!$configStore.showCalendar || ($configStore.webcalendars?.length ?? 0) === 0) {
+			appointments = [];
+			return;
+		}
+
+		void GetAppointments();
+		const appointmentInterval = setInterval(() => void GetAppointments(), 10 * 60 * 1000);
 
 		return () => {
 			clearInterval(appointmentInterval);
@@ -48,24 +64,36 @@
 	}
 </script>
 
-{#if appointments}
+{#if $configStore.showCalendar && appointments.length > 0}
 	<div
 		id="appointments"
-		class="fixed top-0 right-0 w-auto z-10 text-center text-primary m-5 max-w-[20%] hidden lg:block md:min-w-[10%]"
+		class="w-full max-w-sm text-primary text-shadow-sm"
 	>
-		<!-- <div class="text-4xl mx-8 font-bold">Appointments</div> -->
-		<div class="">
+		<div class="space-y-2">
 			{#each appointments as appointment}
-				<div class="bg-gray-600 bg-opacity-90 mb-2 text-left rounded-md p-3">
-					<p class="text-xs">
-						{formatDates(appointment.startTime ?? '', appointment.endTime ?? '')}
+				<div
+					class={`rounded-2xl p-3 text-left ${getWidgetSurfaceClass(
+						resolvedStyle,
+						resolvedPosition
+					)}`}
+				>
+					<p class="appointment-date">
+						{formatTimeRange(appointment.startTime ?? '', appointment.endTime ?? '')}
 					</p>
 					{appointment.summary}
 					{#if appointment.description}
-						<p class="text-xs font-light">{appointment.description}</p>
+						<p class="appointment-description font-light">{appointment.description}</p>
 					{/if}
 				</div>
 			{/each}
 		</div>
 	</div>
 {/if}
+
+<style>
+	.appointment-date,
+	.appointment-description {
+		font-size: 0.78em;
+		line-height: 1.25;
+	}
+</style>

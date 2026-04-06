@@ -48,8 +48,11 @@ public class FrameSessionsControllerTests
                         AccountsImpl = new List<ServerAccountSettings> { accountSettings }
                     };
 
-                    services.AddSingleton<IServerSettings>(serverSettings);
-                    services.AddSingleton<IGeneralSettings>(generalSettings);
+                    services.AddSingleton(new BootstrapServerSettingsHolder(serverSettings));
+                    services.AddSingleton(new AdminManagedSettingsStoreOptions
+                    {
+                        StorePath = Path.Combine(_tempAppDataPath, "admin-settings.json")
+                    });
                     services.AddSingleton<IAdminBasicAuthService>(_ =>
                         new AdminBasicAuthService(new Hashtable
                         {

@@ -44,12 +44,17 @@ public class GeneralSettings : IGeneralSettings, IConfigSettable
     public int Interval { get; set; } = 45;
     public double TransitionDuration { get; set; } = 1;
     public bool ShowClock { get; set; } = true;
+    public bool ShowWeather { get; set; } = true;
+    public bool ShowCalendar { get; set; } = true;
+    public bool ShowMetadata { get; set; } = true;
     public string? ClockFormat { get; set; } = "hh:mm";
     public string? ClockDateFormat { get; set; } = "eee, MMM d";
     public bool ShowProgressBar { get; set; } = true;
     public bool ShowPhotoDate { get; set; } = true;
+    public bool ShowPhotoTimeAgo { get; set; } = false;
     public bool ShowImageDesc { get; set; } = true;
     public bool ShowPeopleDesc { get; set; } = true;
+    public bool ShowPeopleAge { get; set; } = false;
     public bool ShowTagsDesc { get; set; } = true;
     public bool ShowAlbumName { get; set; } = true;
     public bool ShowImageLocation { get; set; } = true;
@@ -57,6 +62,20 @@ public class GeneralSettings : IGeneralSettings, IConfigSettable
     public string? SecondaryColor { get; set; }
     public string Style { get; set; } = "none";
     public string? BaseFontSize { get; set; }
+    public string? ClockFontSize { get; set; }
+    public string? WeatherFontSize { get; set; }
+    public string? CalendarFontSize { get; set; }
+    public string? MetadataFontSize { get; set; }
+    public string? ClockStyle { get; set; }
+    public string? WeatherStyle { get; set; }
+    public string? CalendarStyle { get; set; }
+    public string? MetadataStyle { get; set; }
+    public string ClockPosition { get; set; } = "bottom-left";
+    public string WeatherPosition { get; set; } = "bottom-left";
+    public string CalendarPosition { get; set; } = "top-right";
+    public string MetadataPosition { get; set; } = "bottom-right";
+    public List<string> WidgetStackOrder { get; set; } = ["clock", "weather", "metadata", "calendar"];
+    public bool ShowWeatherLocation { get; set; } = true;
     public bool ShowWeatherDescription { get; set; } = true;
     public string? WeatherIconUrl { get; set; } = "https://openweathermap.org/img/wn/{IconId}.png";
     public bool ImageZoom { get; set; } = true;
@@ -78,6 +97,7 @@ public class GeneralSettings : IGeneralSettings, IConfigSettable
 
 public class ServerAccountSettings : IAccountSettings, IConfigSettable
 {
+    public string AccountIdentifier { get; set; } = string.Empty;
     public string ImmichServerUrl { get; set; } = string.Empty;
     public string ApiKey { get; set; } = string.Empty;
     public string? ApiKeyFile { get; set; } = null;

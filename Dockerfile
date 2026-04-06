@@ -56,3 +56,5 @@ ARG APP_UID=1000
 USER $APP_UID
 
 ENTRYPOINT ["dotnet", "ImmichFrame.WebApi.dll"]
+
+FROM final AS dev

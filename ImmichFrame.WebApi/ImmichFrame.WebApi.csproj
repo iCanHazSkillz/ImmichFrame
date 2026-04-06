@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" />
+    <PackageReference Include="ExCSS" />
     <PackageReference Include="Swashbuckle.AspNetCore" />
     <PackageReference Include="Microsoft.AspNetCore.SpaProxy" />
     <PackageReference Include="YamlDotNet" />
@@ -20,7 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Update="wwwroot\custom.css">
+    <Content Update="wwwroot\static\custom.css">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <InternalsVisibleTo Include="ImmichFrame.WebApi.Tests" />

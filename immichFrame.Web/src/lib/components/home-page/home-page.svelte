@@ -15,6 +15,8 @@
 	import ErrorElement from '../elements/error-element.svelte';
 	import Clock from '../elements/clock.svelte';
 	import Appointments from '../elements/appointments.svelte';
+	import Weather from '../elements/weather.svelte';
+	import MetadataStack from '../elements/metadata-stack.svelte';
 	import LoadingElement from '../elements/LoadingElement.svelte';
 	import { page } from '$app/state';
 	import { ProgressBarLocation, ProgressBarStatus } from '../elements/progress-bar.types';
@@ -26,6 +28,14 @@
 		putFrameSessionSnapshot,
 		sendBeaconFrameSessionDisconnect
 	} from '$lib/frameSessionApi';
+	import {
+		getCornerDockClass,
+		getWidgetStyle,
+		normalizeWidgetPosition,
+		normalizeWidgetStackOrder,
+		type WidgetKey,
+		type WidgetPosition
+	} from '$lib/widget-layout';
 
 	interface AssetsState {
 		assets: [string, api.AssetResponseDto, api.AlbumResponseDto[]][];
@@ -100,6 +110,39 @@
 	let lastAppliedClientNameFromUrl: string | null | undefined = $state(undefined);
 	let lastAppliedAuthSecretFromUrl: string | null | undefined = $state(undefined);
 	let handledCommandIds = new Set<number>();
+	const widgetStackOrder = $derived(
+		normalizeWidgetStackOrder($configStore.widgetStackOrder)
+	);
+
+	function getWidgetPosition(widget: WidgetKey): WidgetPosition {
+		switch (widget) {
+			case 'clock':
+				return normalizeWidgetPosition($configStore.clockPosition, 'bottom-left');
+			case 'weather':
+				return normalizeWidgetPosition($configStore.weatherPosition, 'bottom-left');
+			case 'metadata':
+				return normalizeWidgetPosition($configStore.metadataPosition, 'bottom-right');
+			case 'calendar':
+				return normalizeWidgetPosition($configStore.calendarPosition, 'top-right');
+		}
+	}
+
+	function getWidgetFontStyle(widget: WidgetKey) {
+		switch (widget) {
+			case 'clock':
+				return getWidgetStyle($configStore.clockFontSize);
+			case 'weather':
+				return getWidgetStyle($configStore.weatherFontSize);
+			case 'metadata':
+				return getWidgetStyle($configStore.metadataFontSize);
+			case 'calendar':
+				return getWidgetStyle($configStore.calendarFontSize);
+		}
+	}
+
+	function renderWidgetInCorner(widget: WidgetKey, corner: WidgetPosition) {
+		return getWidgetPosition(widget) === corner;
+	}
 
 	$effect(() => {
 		const clientIdentifierFromUrl = page.url.searchParams.get('client');
@@ -743,6 +786,8 @@
 
 		if ($configStore.baseFontSize) {
 			document.documentElement.style.fontSize = $configStore.baseFontSize;
+		} else {
+			document.documentElement.style.removeProperty('font-size');
 		}
 
 		unsubscribeRestart = restartProgress.subscribe((value) => {
@@ -864,11 +909,37 @@
 			/>
 		</div>
 
-		{#if $configStore.showClock}
-			<Clock />
-		{/if}
-
-		<Appointments />
+		{#each ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as corner}
+			<div
+				class={`pointer-events-none fixed z-10 flex w-[min(24rem,calc(100vw-1.5rem))] max-w-full gap-1 ${
+					corner.startsWith('bottom') ? 'flex-col-reverse' : 'flex-col'
+				} ${getCornerDockClass(corner as WidgetPosition)}`}
+			>
+				{#each widgetStackOrder as widget}
+					{#if renderWidgetInCorner(widget, corner as WidgetPosition)}
+						<div
+							class={`pointer-events-auto ${
+								corner.endsWith('right') ? 'self-end text-right' : 'self-start text-left'
+							}`}
+							style={getWidgetFontStyle(widget)}
+						>
+							{#if widget === 'clock' && $configStore.showClock}
+								<Clock />
+							{:else if widget === 'weather' && $configStore.showWeather}
+								<Weather />
+							{:else if widget === 'metadata' && $configStore.showMetadata}
+								<MetadataStack
+									entries={assetsState.assets.map(([, asset, albums]) => ({ asset, albums }))}
+									split={assetsState.split}
+								/>
+							{:else if widget === 'calendar' && $configStore.showCalendar}
+								<Appointments />
+							{/if}
+						</div>
+					{/if}
+				{/each}
+			</div>
+		{/each}
 
 		<OverlayControls
 			next={async () => {
