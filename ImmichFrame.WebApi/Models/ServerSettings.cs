@@ -97,6 +97,7 @@ public class GeneralSettings : IGeneralSettings, IConfigSettable
 
 public class ServerAccountSettings : IAccountSettings, IConfigSettable
 {
+    public string AccountIdentifier { get; set; } = string.Empty;
     public string ImmichServerUrl { get; set; } = string.Empty;
     public string ApiKey { get; set; } = string.Empty;
     public string? ApiKeyFile { get; set; } = null;

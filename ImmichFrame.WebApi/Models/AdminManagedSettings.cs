@@ -360,7 +360,7 @@ public class AdminManagedAccountSettings
 
         return new AdminManagedAccountSettings
         {
-            AccountIdentifier = ServerSettingsFactory.BuildAccountIdentifier(settings),
+            AccountIdentifier = ServerSettingsFactory.GetAccountIdentifier(settings),
             ShowMemories = settings.ShowMemories,
             ShowFavorites = settings.ShowFavorites,
             ShowArchived = settings.ShowArchived,

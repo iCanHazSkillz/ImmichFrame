@@ -9,12 +9,13 @@ public sealed class BootstrapServerSettingsHolder
     public BootstrapServerSettingsHolder(ServerSettings settings)
     {
         Settings = ServerSettingsFactory.Clone(settings);
+        ServerSettingsFactory.EnsureAccountIdentifiers(Settings);
     }
 
     public ServerSettings Settings { get; }
 }
 
-public sealed record EffectiveSettingsSnapshot(long Version, ServerSettings Settings, string CustomCss);
+public sealed record EffectiveSettingsSnapshot(long Version, ServerSettings Settings, string CustomCss, bool HasCustomCssOverride);
 
 public interface IWritableEffectiveSettingsProvider : ISettingsSnapshotProvider
 {
@@ -45,7 +46,11 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
 
         var storedSettings = _store.LoadOrSeed(_bootstrapSettings);
         _managedSettingsDocument = CloneManagedSettingsDocument(storedSettings);
-        _snapshot = BuildSnapshot(1, _managedSettingsDocument, _customCssStore.LoadEditableCss());
+        _snapshot = BuildSnapshot(
+            1,
+            _managedSettingsDocument,
+            _customCssStore.LoadEditableCss(),
+            _customCssStore.LoadStoredCssOverride() is not null);
         _store.Save(CloneManagedSettingsDocument(_managedSettingsDocument));
     }
 
@@ -75,13 +80,23 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
             var currentSnapshot = _snapshot;
             var currentDocument = CloneManagedSettingsDocument(_managedSettingsDocument);
             var nextManagedDocument = MergeManagedSettingsDocument(currentDocument, settings);
-            var nextSnapshot = BuildSnapshot(currentSnapshot.Version + 1, nextManagedDocument, customCss ?? string.Empty);
+            var fallbackCustomCss = _customCssStore.LoadFallbackCss();
+            var providedCustomCss = customCss ?? string.Empty;
+            var hasCustomCssOverride = !string.Equals(
+                NormalizeCustomCss(providedCustomCss),
+                NormalizeCustomCss(fallbackCustomCss),
+                StringComparison.Ordinal);
+            var nextSnapshot = BuildSnapshot(
+                currentSnapshot.Version + 1,
+                nextManagedDocument,
+                hasCustomCssOverride ? providedCustomCss : fallbackCustomCss,
+                hasCustomCssOverride);
 
             _store.Save(CloneManagedSettingsDocument(nextManagedDocument));
 
             try
             {
-                _customCssStore.Save(nextSnapshot.CustomCss);
+                _customCssStore.Save(nextSnapshot.HasCustomCssOverride ? nextSnapshot.CustomCss : null);
                 string loadedCustomCss;
                 try
                 {
@@ -123,7 +138,7 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
         return ((ISettingsSnapshotProvider)this).GetCurrentSnapshot().Version;
     }
 
-    private EffectiveSettingsSnapshot BuildSnapshot(long version, AdminManagedSettingsDocument managedSettings, string customCss)
+    private EffectiveSettingsSnapshot BuildSnapshot(long version, AdminManagedSettingsDocument managedSettings, string customCss, bool hasCustomCssOverride)
     {
         var effectiveSettings = ServerSettingsFactory.Clone(_bootstrapSettings);
 
@@ -134,7 +149,13 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
         var effectiveAccountsById = new Dictionary<string, ServerAccountSettings>(StringComparer.Ordinal);
         foreach (var effectiveAccount in effectiveAccounts)
         {
-            var identifier = ServerSettingsFactory.BuildAccountIdentifier(effectiveAccount);
+            if (string.IsNullOrWhiteSpace(effectiveAccount.AccountIdentifier))
+            {
+                _logger.LogWarning("Skipping effective account for runtime settings because it is missing an AccountIdentifier.");
+                continue;
+            }
+
+            var identifier = effectiveAccount.AccountIdentifier;
             if (!effectiveAccountsById.TryAdd(identifier, effectiveAccount))
             {
                 _logger.LogWarning("Duplicate effective account identifier {accountIdentifier} detected while building runtime settings.", identifier);
@@ -161,7 +182,7 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
         effectiveSettings.AccountsImpl = effectiveAccounts;
         effectiveSettings.Validate();
 
-        return new EffectiveSettingsSnapshot(version, effectiveSettings, customCss);
+        return new EffectiveSettingsSnapshot(version, effectiveSettings, customCss, hasCustomCssOverride);
     }
 
     private static EffectiveSettingsSnapshot CloneSnapshot(EffectiveSettingsSnapshot snapshot)
@@ -169,7 +190,8 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
         return new EffectiveSettingsSnapshot(
             snapshot.Version,
             ServerSettingsFactory.Clone(snapshot.Settings),
-            snapshot.CustomCss);
+            snapshot.CustomCss,
+            snapshot.HasCustomCssOverride);
     }
 
     private void ReplaceOrAppendManagedAccount(List<AdminManagedAccountSettings> accounts, AdminManagedAccountSettings account)
@@ -227,5 +249,13 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
     {
         return JsonSerializer.Deserialize<AdminManagedAccountSettings>(JsonSerializer.Serialize(settings))
             ?? new AdminManagedAccountSettings();
+    }
+
+    private static string NormalizeCustomCss(string? css)
+    {
+        return (css ?? string.Empty)
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Trim();
     }
 }

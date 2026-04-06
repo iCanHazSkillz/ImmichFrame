@@ -26,6 +26,7 @@ public class OpenWeatherMapService : IWeatherService
         }
 
         var cache = GetCache(snapshot.Version);
+        using var cacheLease = cache.AcquireLease();
         var cachedWeather = await cache.GetOrAddAsync("weather", async () =>
         {
             var weatherLatLong = settings.WeatherLatLong;
@@ -46,7 +47,7 @@ public class OpenWeatherMapService : IWeatherService
                 }
             }
 
-            var weather = await GetWeather(weatherLat, weatherLong);
+            var weather = await GetWeather(weatherLat, weatherLong, settings);
 
             return new CachedWeather(weather);
         });
@@ -57,6 +58,11 @@ public class OpenWeatherMapService : IWeatherService
     public async Task<IWeather?> GetWeather(double latitude, double longitude)
     {
         var settings = _settingsProvider.GetCurrentSnapshot().Settings.GeneralSettings;
+        return await GetWeather(latitude, longitude, settings);
+    }
+
+    private static async Task<IWeather?> GetWeather(double latitude, double longitude, IGeneralSettings settings)
+    {
         if (!settings.ShowWeather || string.IsNullOrWhiteSpace(settings.WeatherApiKey))
         {
             return null;

@@ -121,7 +121,7 @@ public class AdminManagedSettingsStore(
             var accountElement = accountsElement[index];
             if (!accountElement.TryGetProperty("AccountIdentifier", out _))
             {
-                settings.Accounts[index].AccountIdentifier = ServerSettingsFactory.BuildAccountIdentifier(bootstrapAccounts[index]);
+                settings.Accounts[index].AccountIdentifier = ServerSettingsFactory.GetAccountIdentifier(bootstrapAccounts[index]);
             }
         }
     }

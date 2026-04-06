@@ -10,11 +10,14 @@ public static class ServerSettingsFactory
     {
         ArgumentNullException.ThrowIfNull(settings);
 
-        return new ServerSettings
+        var clone = new ServerSettings
         {
             GeneralSettingsImpl = Clone(settings.GeneralSettings),
             AccountsImpl = settings.Accounts.Select(Clone).ToList()
         };
+
+        EnsureAccountIdentifiers(clone);
+        return clone;
     }
 
     public static GeneralSettings Clone(IGeneralSettings settings)
@@ -86,6 +89,7 @@ public static class ServerSettingsFactory
 
         return new ServerAccountSettings
         {
+            AccountIdentifier = GetAccountIdentifier(settings),
             ImmichServerUrl = settings.ImmichServerUrl,
             // ApiKeyFile values are intentionally flattened into ApiKey so the
             // validated bootstrap snapshot can be re-validated safely.
@@ -115,5 +119,56 @@ public static class ServerSettingsFactory
         var input = $"{settings.ImmichServerUrl}\n{settings.ApiKey}";
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
         return Convert.ToHexString(bytes);
+    }
+
+    public static string GetAccountIdentifier(IAccountSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        if (settings is ServerAccountSettings serverAccount && !string.IsNullOrWhiteSpace(serverAccount.AccountIdentifier))
+        {
+            return serverAccount.AccountIdentifier;
+        }
+
+        return BuildAccountIdentifier(settings);
+    }
+
+    public static void EnsureAccountIdentifiers(ServerSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        var accounts = settings.AccountsImpl.ToList();
+        var seenIdentifiers = new HashSet<string>(StringComparer.Ordinal);
+        var collisionCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var account in accounts)
+        {
+            var baseIdentifier = string.IsNullOrWhiteSpace(account.AccountIdentifier)
+                ? BuildAccountIdentifier(account)
+                : account.AccountIdentifier.Trim();
+
+            if (seenIdentifiers.Add(baseIdentifier))
+            {
+                account.AccountIdentifier = baseIdentifier;
+                collisionCounts.TryAdd(baseIdentifier, 0);
+                continue;
+            }
+
+            var nextCollisionIndex = collisionCounts.TryGetValue(baseIdentifier, out var existingCollisionIndex)
+                ? existingCollisionIndex + 1
+                : 1;
+            string candidateIdentifier;
+            do
+            {
+                candidateIdentifier = $"{baseIdentifier}:{nextCollisionIndex}";
+                nextCollisionIndex++;
+            }
+            while (!seenIdentifiers.Add(candidateIdentifier));
+
+            collisionCounts[baseIdentifier] = nextCollisionIndex - 1;
+            account.AccountIdentifier = candidateIdentifier;
+        }
+
+        settings.AccountsImpl = accounts;
     }
 }

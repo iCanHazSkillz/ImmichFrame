@@ -8,6 +8,7 @@ public class CustomCssStoreOptions
 
 public interface ICustomCssStore
 {
+    string LoadFallbackCss();
     string? LoadStoredCssOverride();
     string LoadEditableCss();
     string LoadStylesheetContent();
@@ -71,7 +72,7 @@ public class CustomCssStore(CustomCssStoreOptions options) : ICustomCssStore
         return options.StorePath;
     }
 
-    private string LoadFallbackCss()
+    public string LoadFallbackCss()
     {
         var fallbackPath = options.FallbackPath;
         return !string.IsNullOrWhiteSpace(fallbackPath) && File.Exists(fallbackPath)
