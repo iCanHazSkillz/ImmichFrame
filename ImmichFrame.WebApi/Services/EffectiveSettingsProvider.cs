@@ -157,7 +157,7 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
             var identifier = effectiveAccount.AccountIdentifier;
             if (!effectiveAccountsById.TryAdd(identifier, effectiveAccount))
             {
-                _logger.LogWarning("Duplicate effective account identifier {accountIdentifier} detected while building runtime settings.", identifier);
+                _logger.LogWarning("Duplicate effective account identifier detected while building runtime settings.");
             }
         }
 

@@ -114,9 +114,18 @@ public static class ServerSettingsFactory
     {
         ArgumentNullException.ThrowIfNull(settings);
 
+        var input = NormalizeServerUrl(settings.ImmichServerUrl);
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(bytes);
+    }
+
+    public static string BuildLegacyAccountIdentifier(IAccountSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
         // ApiKeyFile is intentionally omitted here because bootstrap cloning flattens
         // file-backed credentials into ApiKey before runtime settings are compared.
-        var input = $"{settings.ImmichServerUrl}\n{settings.ApiKey}";
+        var input = $"{NormalizeServerUrl(settings.ImmichServerUrl)}\n{settings.ApiKey}";
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
         return Convert.ToHexString(bytes);
     }
@@ -178,8 +187,7 @@ public static class ServerSettingsFactory
         ArgumentNullException.ThrowIfNull(account);
 
         var builder = new StringBuilder();
-        builder.Append(account.ImmichServerUrl).Append('\n');
-        builder.Append(account.ApiKey).Append('\n');
+        builder.Append(NormalizeServerUrl(account.ImmichServerUrl)).Append('\n');
         builder.Append(account.ShowMemories).Append('\n');
         builder.Append(account.ShowFavorites).Append('\n');
         builder.Append(account.ShowArchived).Append('\n');
@@ -195,5 +203,10 @@ public static class ServerSettingsFactory
 
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString()));
         return Convert.ToHexString(bytes);
+    }
+
+    private static string NormalizeServerUrl(string? value)
+    {
+        return value?.Trim().TrimEnd('/').ToLowerInvariant() ?? string.Empty;
     }
 }

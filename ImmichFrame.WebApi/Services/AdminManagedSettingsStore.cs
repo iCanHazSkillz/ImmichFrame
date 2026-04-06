@@ -107,6 +107,16 @@ public class AdminManagedSettingsStore(
             if (!accountElement.TryGetProperty("AccountIdentifier", out _))
             {
                 settings.Accounts[index].AccountIdentifier = ServerSettingsFactory.GetAccountIdentifier(bootstrapAccounts[index]);
+                continue;
+            }
+
+            var persistedIdentifier = settings.Accounts[index].AccountIdentifier?.Trim();
+            var currentIdentifier = ServerSettingsFactory.GetAccountIdentifier(bootstrapAccounts[index]);
+            var legacyIdentifier = ServerSettingsFactory.BuildLegacyAccountIdentifier(bootstrapAccounts[index]);
+            if (string.Equals(persistedIdentifier, legacyIdentifier, StringComparison.Ordinal) &&
+                !string.Equals(persistedIdentifier, currentIdentifier, StringComparison.Ordinal))
+            {
+                settings.Accounts[index].AccountIdentifier = currentIdentifier;
             }
         }
     }

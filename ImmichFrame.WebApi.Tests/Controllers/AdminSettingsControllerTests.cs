@@ -237,6 +237,81 @@ public class AdminSettingsControllerTests
     }
 
     [Test]
+    public async Task Get_MigratesLegacyCredentialDerivedAccountIdentifiers()
+    {
+        var storePath = Path.Combine(_tempAppDataPath, "admin-settings.json");
+        var legacyIdentifier = ServerSettingsFactory.BuildLegacyAccountIdentifier(new ServerAccountSettings
+        {
+            ImmichServerUrl = TestImmichServerUrl,
+            ApiKey = TestApiKey
+        });
+
+        await File.WriteAllTextAsync(storePath, $$"""
+        {
+          "General": {
+            "Interval": 45,
+            "ShowClock": true,
+            "ShowWeather": true,
+            "ShowCalendar": true,
+            "ClockFormat": "hh:mm",
+            "ClockDateFormat": "eee, MMM d",
+            "PhotoDateFormat": "MM/dd/yyyy",
+            "ImageLocationFormat": "City,State,Country",
+            "Layout": "splitview",
+            "Language": "en",
+            "ShowProgressBar": true,
+            "ShowPhotoDate": true,
+            "ShowImageDesc": true,
+            "ShowPeopleDesc": true,
+            "ShowTagsDesc": true,
+            "ShowAlbumName": true,
+            "ShowImageLocation": true,
+            "ShowWeatherDescription": true,
+            "ImageZoom": true,
+            "ImagePan": false,
+            "ImageFill": false,
+            "PlayAudio": false,
+            "Style": "none",
+            "Webcalendars": []
+          },
+          "Accounts": [
+            {
+              "AccountIdentifier": "{{legacyIdentifier}}",
+              "ShowFavorites": false,
+              "ShowMemories": false,
+              "ShowArchived": false,
+              "ShowVideos": false,
+              "Albums": [],
+              "ExcludedAlbums": [],
+              "People": [],
+              "Tags": []
+            }
+          ]
+        }
+        """);
+
+        var adminClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var response = await adminClient.GetFromJsonAsync<AdminSettingsResponseDto>("/api/admin/settings");
+
+        Assert.That(response, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(response!.Accounts, Has.Count.EqualTo(1));
+            Assert.That(response.Accounts[0].AccountIdentifier, Is.EqualTo(CreateAccountIdentifier()));
+            Assert.That(response.Accounts[0].AccountIdentifier, Is.Not.EqualTo(legacyIdentifier));
+        });
+
+        var persisted = System.Text.Json.JsonSerializer.Deserialize<AdminManagedSettingsDocument>(await File.ReadAllTextAsync(storePath));
+        Assert.That(persisted, Is.Not.Null);
+        Assert.That(persisted!.Accounts[0].AccountIdentifier, Is.EqualTo(CreateAccountIdentifier()));
+    }
+
+    [Test]
     public async Task Update_PreservesDormantStoredAccountOverridesDuringRoundTrip()
     {
         var dormantAccountIdentifier = "DORMANT-ACCOUNT-ID";
