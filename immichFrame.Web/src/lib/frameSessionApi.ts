@@ -104,10 +104,8 @@ export interface AdminManagedGeneralSettings {
 	renewImagesDuration: number;
 	webcalendars: string[];
 	refreshAlbumPeopleInterval: number;
-	weatherApiKey?: string | null;
 	unitSystem?: string | null;
 	weatherLatLong?: string | null;
-	webhook?: string | null;
 }
 
 export interface AdminManagedAccountSettings {

@@ -1,5 +1,5 @@
 using ImmichFrame.Core.Interfaces;
-using System.Text.RegularExpressions;
+using ImmichFrame.Core.Helpers;
 
 namespace ImmichFrame.WebApi.Models;
 
@@ -34,7 +34,6 @@ public class AdminManagedSettingsDocument
 
 public class AdminManagedGeneralSettings
 {
-    private static readonly Regex EncodedCalendarSegmentPattern = new("%+(?=[0-9A-Fa-f]{2})", RegexOptions.Compiled);
     public bool DownloadImages { get; set; } = false;
     public string Language { get; set; } = "en";
     public string? ImageLocationFormat { get; set; } = "City,State,Country";
@@ -84,10 +83,8 @@ public class AdminManagedGeneralSettings
     public int RenewImagesDuration { get; set; } = 30;
     public List<string> Webcalendars { get; set; } = [];
     public int RefreshAlbumPeopleInterval { get; set; } = 12;
-    public string? WeatherApiKey { get; set; } = string.Empty;
     public string? UnitSystem { get; set; } = "imperial";
     public string? WeatherLatLong { get; set; } = "40.7128,74.0060";
-    public string? Webhook { get; set; }
 
     public void Normalize()
     {
@@ -179,10 +176,8 @@ public class AdminManagedGeneralSettings
         settings.RenewImagesDuration = RenewImagesDuration;
         settings.Webcalendars = Webcalendars.ToList();
         settings.RefreshAlbumPeopleInterval = RefreshAlbumPeopleInterval;
-        settings.WeatherApiKey = WeatherApiKey;
         settings.UnitSystem = UnitSystem;
         settings.WeatherLatLong = WeatherLatLong;
-        settings.Webhook = Webhook;
     }
 
     public static AdminManagedGeneralSettings FromGeneralSettings(IGeneralSettings settings)
@@ -240,10 +235,8 @@ public class AdminManagedGeneralSettings
             RenewImagesDuration = settings.RenewImagesDuration,
             Webcalendars = settings.Webcalendars.ToList(),
             RefreshAlbumPeopleInterval = settings.RefreshAlbumPeopleInterval,
-            WeatherApiKey = settings.WeatherApiKey,
             UnitSystem = settings.UnitSystem,
-            WeatherLatLong = settings.WeatherLatLong,
-            Webhook = settings.Webhook
+            WeatherLatLong = settings.WeatherLatLong
         };
     }
 
@@ -278,12 +271,7 @@ public class AdminManagedGeneralSettings
 
     private static string NormalizeCalendarUrl(string? value)
     {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return string.Empty;
-        }
-
-        return EncodedCalendarSegmentPattern.Replace(value.Trim(), "%");
+        return CalendarUrlNormalizer.Normalize(value);
     }
 
     private static List<string> NormalizeWidgetStackOrder(List<string>? value)

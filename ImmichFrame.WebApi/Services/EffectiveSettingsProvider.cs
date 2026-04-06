@@ -81,15 +81,14 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
             var currentDocument = CloneManagedSettingsDocument(_managedSettingsDocument);
             var nextManagedDocument = MergeManagedSettingsDocument(currentDocument, settings);
             var fallbackCustomCss = _customCssStore.LoadFallbackCss();
-            var providedCustomCss = customCss ?? string.Empty;
-            var hasCustomCssOverride = !string.Equals(
-                NormalizeCustomCss(providedCustomCss),
+            var hasCustomCssOverride = customCss is not null && !string.Equals(
+                NormalizeCustomCss(customCss),
                 NormalizeCustomCss(fallbackCustomCss),
                 StringComparison.Ordinal);
             var nextSnapshot = BuildSnapshot(
                 currentSnapshot.Version + 1,
                 nextManagedDocument,
-                hasCustomCssOverride ? providedCustomCss : fallbackCustomCss,
+                hasCustomCssOverride ? customCss! : fallbackCustomCss,
                 hasCustomCssOverride);
 
             _store.Save(CloneManagedSettingsDocument(nextManagedDocument));

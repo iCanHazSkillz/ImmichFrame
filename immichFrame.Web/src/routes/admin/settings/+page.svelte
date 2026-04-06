@@ -247,9 +247,6 @@
 	const widgetStackOrder = $derived.by(() =>
 		draft ? normalizeWidgetStackOrder(draft.general.widgetStackOrder) : [...widgetStackDefaults]
 	);
-	const weatherNeedsApiKey = $derived.by(
-		() => Boolean(draft && draft.general.showWeather && !draft.general.weatherApiKey?.trim())
-	);
 	const calendarNeedsFeed = $derived.by(
 		() => Boolean(draft && draft.general.showCalendar && (draft.general.webcalendars?.length ?? 0) === 0)
 	);
@@ -487,12 +484,6 @@
 
 	async function saveSettings() {
 		if (!draft) return;
-
-		if (draft.general.showWeather && !draft.general.weatherApiKey?.trim()) {
-			saveErrorMessage = 'Weather API Key is required when Show Weather is enabled.';
-			saveSuccessMessage = '';
-			return;
-		}
 
 		if (draft.general.showCalendar && (draft.general.webcalendars?.length ?? 0) === 0) {
 			saveErrorMessage = 'Add at least one webcalendar before enabling the calendar widget.';
@@ -1532,7 +1523,7 @@
 												<SettingLabel
 													fieldId="showWeather-nested"
 													label="Show Weather"
-													description="Displays the weather block on the frame. When enabled, a Weather API Key is required before the settings can be saved."
+													description="Displays the weather block on the frame. Weather credentials remain bootstrap-managed and are not stored in runtime admin settings."
 													defaultValue="true"
 													options="true or false."
 													example="Disable it for frames that should only show photos and metadata."
@@ -1550,34 +1541,6 @@
 
 										{#if draft.general.showWeather}
 										<div class="grid gap-4 md:grid-cols-2">
-											<div class="space-y-2">
-												<SettingLabel
-													fieldId="weatherApiKey-nested"
-													label="Weather API Key"
-													description="OpenWeatherMap API key used for live weather requests."
-													defaultValue="Blank"
-													options="Any valid OpenWeatherMap API key string."
-													example="abcd1234efgh5678"
-												/>
-												<input
-													id="weatherApiKey-nested"
-													class={inputClass}
-													type="text"
-													required={draft.general.showWeather}
-													value={draft.general.weatherApiKey ?? ''}
-													oninput={(event) =>
-														updateGeneral(
-															'weatherApiKey',
-															(event.currentTarget as HTMLInputElement).value
-														)}
-												/>
-												{#if weatherNeedsApiKey}
-													<p class="text-xs text-amber-300">
-														Weather API Key is required while Show Weather is enabled.
-													</p>
-												{/if}
-											</div>
-
 											<div class="space-y-2">
 												<SettingLabel
 													fieldId="unitSystem-nested"
@@ -2043,37 +2006,6 @@
 
 					<section class={sectionClass}>
 						<div class="flex flex-col gap-1">
-							<h2 class="text-2xl font-semibold tracking-tight">Webhook</h2>
-							<p class="text-sm text-stone-400">
-								Optional outbound notification target for frame events and integrations.
-							</p>
-						</div>
-
-						<div class="mt-6 space-y-2">
-							<SettingLabel
-								fieldId="webhook"
-								label="Webhook URL"
-								description="Optional HTTP endpoint to notify when the server emits webhook events. Good test targets include webhook.site or RequestBin, a local Home Assistant or Node-RED flow, or a small relay that forwards into Slack or Discord."
-								defaultValue="Blank"
-								options="Any valid HTTP or HTTPS URL."
-								example="https://webhook.site/your-test-id"
-							/>
-							<input
-								id="webhook"
-								class={inputClass}
-								type="url"
-								value={draft.general.webhook ?? ''}
-								oninput={(event) =>
-									updateGeneral('webhook', (event.currentTarget as HTMLInputElement).value)}
-							/>
-							<p class="text-xs text-stone-500">
-								Try it with webhook.site or RequestBin to inspect incoming requests, a local Node-RED or Home Assistant automation, or a relay that posts into Discord or Slack.
-							</p>
-						</div>
-					</section>
-
-					<section class={sectionClass}>
-						<div class="flex flex-col gap-1">
 							<h2 class="text-2xl font-semibold tracking-tight">Custom CSS</h2>
 							<p class="text-sm text-stone-400">
 								Add custom CSS for browser and WebView clients. The CSS is stored in App_Data and served from /static/custom.css automatically.
@@ -2117,7 +2049,7 @@
 							<button
 								type="button"
 								class="inline-flex items-center justify-center gap-2 rounded-full border border-[color:var(--primary-color)]/40 bg-[color:var(--primary-color)]/15 px-5 py-3 text-sm font-medium text-[color:var(--primary-color)] transition hover:bg-[color:var(--primary-color)]/25 disabled:cursor-not-allowed disabled:opacity-50"
-								disabled={savePending || !isDirty || weatherNeedsApiKey || calendarNeedsFeed}
+								disabled={savePending || !isDirty || calendarNeedsFeed}
 								onclick={() => void saveSettings()}
 							>
 								<Icon path={mdiContentSave} title="Save settings" size="1rem" />

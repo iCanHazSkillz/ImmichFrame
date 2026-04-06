@@ -47,12 +47,6 @@ public class AdminSettingsController : ControllerBase
         request ??= new AdminSettingsUpdateRequest();
         var document = request.ToDocument();
 
-        if (document.General.ShowWeather && string.IsNullOrWhiteSpace(document.General.WeatherApiKey))
-        {
-            ModelState.AddModelError(nameof(document.General.WeatherApiKey), "Weather API Key is required when Show Weather is enabled.");
-            return ValidationProblem(ModelState);
-        }
-
         if (document.General.ShowCalendar && (document.General.Webcalendars == null || document.General.Webcalendars.Count == 0))
         {
             ModelState.AddModelError(nameof(document.General.Webcalendars), "At least one webcalendar is required when the calendar widget is enabled.");

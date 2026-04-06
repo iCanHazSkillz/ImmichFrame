@@ -138,37 +138,62 @@ public static class ServerSettingsFactory
         ArgumentNullException.ThrowIfNull(settings);
 
         var accounts = settings.AccountsImpl.ToList();
-        var seenIdentifiers = new HashSet<string>(StringComparer.Ordinal);
-        var collisionCounts = new Dictionary<string, int>(StringComparer.Ordinal);
-
-        foreach (var account in accounts)
-        {
-            var baseIdentifier = string.IsNullOrWhiteSpace(account.AccountIdentifier)
-                ? BuildAccountIdentifier(account)
-                : account.AccountIdentifier.Trim();
-
-            if (seenIdentifiers.Add(baseIdentifier))
+        var accountEntries = accounts
+            .Select((account, index) => new
             {
-                account.AccountIdentifier = baseIdentifier;
-                collisionCounts.TryAdd(baseIdentifier, 0);
+                Account = account,
+                OriginalIndex = index,
+                BaseIdentifier = string.IsNullOrWhiteSpace(account.AccountIdentifier)
+                    ? BuildAccountIdentifier(account)
+                    : account.AccountIdentifier.Trim(),
+                StableSortKey = BuildStableAccountDisambiguator(account)
+            })
+            .ToList();
+
+        foreach (var group in accountEntries.GroupBy(entry => entry.BaseIdentifier, StringComparer.Ordinal))
+        {
+            var orderedEntries = group
+                .OrderBy(entry => entry.StableSortKey, StringComparer.Ordinal)
+                .ThenBy(entry => entry.OriginalIndex)
+                .ToList();
+
+            if (orderedEntries.Count == 0)
+            {
                 continue;
             }
 
-            var nextCollisionIndex = collisionCounts.TryGetValue(baseIdentifier, out var existingCollisionIndex)
-                ? existingCollisionIndex + 1
-                : 1;
-            string candidateIdentifier;
-            do
-            {
-                candidateIdentifier = $"{baseIdentifier}:{nextCollisionIndex}";
-                nextCollisionIndex++;
-            }
-            while (!seenIdentifiers.Add(candidateIdentifier));
+            orderedEntries[0].Account.AccountIdentifier = group.Key;
 
-            collisionCounts[baseIdentifier] = nextCollisionIndex - 1;
-            account.AccountIdentifier = candidateIdentifier;
+            for (var collisionIndex = 1; collisionIndex < orderedEntries.Count; collisionIndex++)
+            {
+                orderedEntries[collisionIndex].Account.AccountIdentifier = $"{group.Key}:{collisionIndex}";
+            }
         }
 
         settings.AccountsImpl = accounts;
+    }
+
+    private static string BuildStableAccountDisambiguator(IAccountSettings account)
+    {
+        ArgumentNullException.ThrowIfNull(account);
+
+        var builder = new StringBuilder();
+        builder.Append(account.ImmichServerUrl).Append('\n');
+        builder.Append(account.ApiKey).Append('\n');
+        builder.Append(account.ShowMemories).Append('\n');
+        builder.Append(account.ShowFavorites).Append('\n');
+        builder.Append(account.ShowArchived).Append('\n');
+        builder.Append(account.ShowVideos).Append('\n');
+        builder.Append(account.ImagesFromDays?.ToString() ?? string.Empty).Append('\n');
+        builder.Append(account.ImagesFromDate?.ToString("O") ?? string.Empty).Append('\n');
+        builder.Append(account.ImagesUntilDate?.ToString("O") ?? string.Empty).Append('\n');
+        builder.Append(string.Join(",", account.Albums.OrderBy(id => id))).Append('\n');
+        builder.Append(string.Join(",", account.ExcludedAlbums.OrderBy(id => id))).Append('\n');
+        builder.Append(string.Join(",", account.People.OrderBy(id => id))).Append('\n');
+        builder.Append(string.Join(",", account.Tags.OrderBy(tag => tag, StringComparer.Ordinal))).Append('\n');
+        builder.Append(account.Rating?.ToString() ?? string.Empty);
+
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString()));
+        return Convert.ToHexString(bytes);
     }
 }

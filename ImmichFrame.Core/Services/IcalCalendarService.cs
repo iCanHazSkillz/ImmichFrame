@@ -1,6 +1,5 @@
 using System.Net.Http.Headers;
 using System.Text;
-using System.Text.RegularExpressions;
 using Ical.Net;
 using ImmichFrame.Core.Helpers;
 using ImmichFrame.Core.Interfaces;
@@ -9,7 +8,6 @@ using Microsoft.Extensions.Logging;
 
 public class IcalCalendarService : ICalendarService
 {
-    private static readonly Regex EncodedCalendarSegmentPattern = new("%+(?=[0-9A-Fa-f]{2})", RegexOptions.Compiled);
     private readonly ISettingsSnapshotProvider _settingsProvider;
     private readonly ILogger<IcalCalendarService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -29,7 +27,6 @@ public class IcalCalendarService : ICalendarService
         var snapshot = _settingsProvider.GetCurrentSnapshot();
         var settings = snapshot.Settings.GeneralSettings;
         var cache = GetCache(snapshot.Version);
-        using var cacheLease = cache.AcquireLease();
         return await cache.GetOrAddAsync("appointments", async () =>
         {
             var appointments = new List<IAppointment>();
@@ -44,13 +41,14 @@ public class IcalCalendarService : ICalendarService
                         return null;
                     }
 
-                    var uri = new Uri(normalizedUrl.Replace("webcal://", "https://"));
+                    var httpUrl = normalizedUrl.Replace("webcal://", "https://", StringComparison.OrdinalIgnoreCase);
+                    var uri = new Uri(httpUrl);
                     if (!string.IsNullOrEmpty(uri.UserInfo))
                     {
                         var url = uri.GetComponents(UriComponents.AbsoluteUri & ~UriComponents.UserInfo, UriFormat.UriEscaped);
                         return (Uri.UnescapeDataString(uri.UserInfo), url);
                     }
-                    return (null, normalizedUrl);
+                    return (null, httpUrl);
                 }
                 catch (UriFormatException)
                 {
@@ -108,12 +106,7 @@ public class IcalCalendarService : ICalendarService
 
     private static string NormalizeCalendarUrl(string? value)
     {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return string.Empty;
-        }
-
-        return EncodedCalendarSegmentPattern.Replace(value.Trim(), "%");
+        return CalendarUrlNormalizer.Normalize(value);
     }
 
     private ApiCache GetCache(long version)

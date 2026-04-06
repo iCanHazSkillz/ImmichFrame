@@ -459,13 +459,20 @@ public class AdminSettingsControllerTests
     }
 
     [Test]
-    public async Task Update_ReturnsBadRequest_WhenWeatherEnabledWithoutApiKey()
+    public async Task Get_AndUpdate_DoNotExposeOrPersistSecretBootstrapSettings()
     {
         var adminClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
         {
             HandleCookies = true
         });
         await LoginAdminAsync(adminClient);
+
+        var initialJson = await adminClient.GetStringAsync("/api/admin/settings");
+        Assert.Multiple(() =>
+        {
+            Assert.That(initialJson, Does.Not.Contain("weatherApiKey"));
+            Assert.That(initialJson, Does.Not.Contain("webhook"));
+        });
 
         var updateRequest = new AdminSettingsUpdateRequest
         {
@@ -475,7 +482,6 @@ public class AdminSettingsControllerTests
                 ShowClock = true,
                 ShowWeather = true,
                 ShowCalendar = true,
-                WeatherApiKey = "",
                 ClockFormat = "hh:mm",
                 ClockDateFormat = "eee, MMM d",
                 PhotoDateFormat = "MM/dd/yyyy",
@@ -516,8 +522,21 @@ public class AdminSettingsControllerTests
         };
 
         var response = await adminClient.PutAsJsonAsync("/api/admin/settings", updateRequest);
+        response.EnsureSuccessStatusCode();
 
-        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var responseJson = await response.Content.ReadAsStringAsync();
+        Assert.Multiple(() =>
+        {
+            Assert.That(responseJson, Does.Not.Contain("weatherApiKey"));
+            Assert.That(responseJson, Does.Not.Contain("webhook"));
+        });
+
+        var persistedJson = await File.ReadAllTextAsync(Path.Combine(_tempAppDataPath, "admin-settings.json"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(persistedJson, Does.Not.Contain("WeatherApiKey"));
+            Assert.That(persistedJson, Does.Not.Contain("Webhook"));
+        });
     }
 
     [Test]

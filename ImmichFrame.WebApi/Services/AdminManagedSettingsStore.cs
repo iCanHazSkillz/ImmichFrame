@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Reflection;
+using ImmichFrame.Core.Interfaces;
 using ImmichFrame.WebApi.Models;
 
 namespace ImmichFrame.WebApi.Services;
@@ -85,24 +87,7 @@ public class AdminManagedSettingsStore(
         using var document = JsonDocument.Parse(json);
         if (document.RootElement.TryGetProperty("General", out var generalElement))
         {
-            var bootstrap = bootstrapSettings.GeneralSettings;
-            ApplyMissingGeneralSetting(generalElement, "ShowWeather", () => settings.General.ShowWeather = bootstrap.ShowWeather);
-            ApplyMissingGeneralSetting(generalElement, "ShowCalendar", () => settings.General.ShowCalendar = bootstrap.ShowCalendar);
-            ApplyMissingGeneralSetting(generalElement, "ShowMetadata", () => settings.General.ShowMetadata = bootstrap.ShowMetadata);
-            ApplyMissingGeneralSetting(generalElement, "ClockFontSize", () => settings.General.ClockFontSize = bootstrap.ClockFontSize);
-            ApplyMissingGeneralSetting(generalElement, "WeatherFontSize", () => settings.General.WeatherFontSize = bootstrap.WeatherFontSize);
-            ApplyMissingGeneralSetting(generalElement, "CalendarFontSize", () => settings.General.CalendarFontSize = bootstrap.CalendarFontSize);
-            ApplyMissingGeneralSetting(generalElement, "MetadataFontSize", () => settings.General.MetadataFontSize = bootstrap.MetadataFontSize);
-            ApplyMissingGeneralSetting(generalElement, "ClockStyle", () => settings.General.ClockStyle = bootstrap.ClockStyle);
-            ApplyMissingGeneralSetting(generalElement, "WeatherStyle", () => settings.General.WeatherStyle = bootstrap.WeatherStyle);
-            ApplyMissingGeneralSetting(generalElement, "CalendarStyle", () => settings.General.CalendarStyle = bootstrap.CalendarStyle);
-            ApplyMissingGeneralSetting(generalElement, "MetadataStyle", () => settings.General.MetadataStyle = bootstrap.MetadataStyle);
-            ApplyMissingGeneralSetting(generalElement, "ClockPosition", () => settings.General.ClockPosition = bootstrap.ClockPosition);
-            ApplyMissingGeneralSetting(generalElement, "WeatherPosition", () => settings.General.WeatherPosition = bootstrap.WeatherPosition);
-            ApplyMissingGeneralSetting(generalElement, "CalendarPosition", () => settings.General.CalendarPosition = bootstrap.CalendarPosition);
-            ApplyMissingGeneralSetting(generalElement, "MetadataPosition", () => settings.General.MetadataPosition = bootstrap.MetadataPosition);
-            ApplyMissingGeneralSetting(generalElement, "WidgetStackOrder", () => settings.General.WidgetStackOrder = bootstrap.WidgetStackOrder.ToList());
-            ApplyMissingGeneralSetting(generalElement, "ShowWeatherLocation", () => settings.General.ShowWeatherLocation = bootstrap.ShowWeatherLocation);
+            ApplyMissingGeneralSettings(generalElement, settings.General, bootstrapSettings.GeneralSettings);
         }
 
         if (!document.RootElement.TryGetProperty("Accounts", out var accountsElement) || accountsElement.ValueKind != JsonValueKind.Array)
@@ -126,12 +111,47 @@ public class AdminManagedSettingsStore(
         }
     }
 
-    private static void ApplyMissingGeneralSetting(JsonElement generalElement, string propertyName, Action applyDefault)
+    private static void ApplyMissingGeneralSettings(
+        JsonElement generalElement,
+        AdminManagedGeneralSettings managedSettings,
+        IGeneralSettings bootstrapSettings)
     {
-        if (!generalElement.TryGetProperty(propertyName, out _))
+        foreach (var managedProperty in typeof(AdminManagedGeneralSettings).GetProperties(BindingFlags.Instance | BindingFlags.Public))
         {
-            applyDefault();
+            if (!managedProperty.CanWrite || generalElement.TryGetProperty(managedProperty.Name, out _))
+            {
+                continue;
+            }
+
+            var bootstrapProperty = bootstrapSettings.GetType().GetProperty(managedProperty.Name, BindingFlags.Instance | BindingFlags.Public);
+            if (bootstrapProperty is null || !bootstrapProperty.CanRead)
+            {
+                continue;
+            }
+
+            var bootstrapValue = bootstrapProperty.GetValue(bootstrapSettings);
+            managedProperty.SetValue(managedSettings, CloneGeneralSettingValue(bootstrapValue, managedProperty.PropertyType));
         }
+    }
+
+    private static object? CloneGeneralSettingValue(object? value, Type targetType)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        if (value is List<string> strings && targetType == typeof(List<string>))
+        {
+            return strings.ToList();
+        }
+
+        if (value is IEnumerable<string> enumerableStrings && targetType == typeof(List<string>))
+        {
+            return enumerableStrings.ToList();
+        }
+
+        return value;
     }
 
     private static void WriteAtomically(string path, string content)

@@ -36,7 +36,7 @@ public class CustomCssStore(CustomCssStoreOptions options) : ICustomCssStore
 
     public string LoadStylesheetContent()
     {
-        return LoadStoredCssOverride() ?? LoadFallbackCss();
+        return LoadEditableCss();
     }
 
     public void Save(string? css)

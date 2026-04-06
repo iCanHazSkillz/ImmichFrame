@@ -26,7 +26,6 @@ public class OpenWeatherMapService : IWeatherService
         }
 
         var cache = GetCache(snapshot.Version);
-        using var cacheLease = cache.AcquireLease();
         var cachedWeather = await cache.GetOrAddAsync("weather", async () =>
         {
             var weatherLatLong = settings.WeatherLatLong;

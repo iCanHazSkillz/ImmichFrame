@@ -24,31 +24,59 @@ public class AdminSettingsResponseDto
         ArgumentNullException.ThrowIfNull(effective);
         ArgumentNullException.ThrowIfNull(bootstrap);
 
+        var effectiveAccounts = effective.Accounts.ToList();
+        var bootstrapAccounts = bootstrap.Accounts.ToList();
+        var effectiveByIdentifier = effectiveAccounts
+            .Select(account => new
+            {
+                Identifier = ServerSettingsFactory.GetAccountIdentifier(account),
+                Account = account
+            })
+            .ToDictionary(item => item.Identifier, item => item.Account, StringComparer.Ordinal);
+        var bootstrapByIdentifier = bootstrapAccounts
+            .Select(account => new
+            {
+                Identifier = ServerSettingsFactory.GetAccountIdentifier(account),
+                Account = account
+            })
+            .ToDictionary(item => item.Identifier, item => item.Account, StringComparer.Ordinal);
+        var orderedIdentifiers = bootstrapAccounts
+            .Select(ServerSettingsFactory.GetAccountIdentifier)
+            .Concat(effectiveAccounts.Select(ServerSettingsFactory.GetAccountIdentifier))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
         return new AdminSettingsResponseDto
         {
             Version = version,
             General = AdminManagedGeneralSettings.FromGeneralSettings(effective.GeneralSettings),
             CustomCss = customCss,
-            Accounts = effective.Accounts
-                .Zip(bootstrap.Accounts, (current, bootstrapAccount) => new { Current = current, Bootstrap = bootstrapAccount })
-                .Select((pair, index) => new AdminAccountSettingsDto
+            Accounts = orderedIdentifiers
+                .Select((identifier, index) =>
                 {
-                    AccountIdentifier = ServerSettingsFactory.GetAccountIdentifier(pair.Bootstrap),
-                    AccountIndex = index,
-                    AccountLabel = $"Account {index + 1}",
-                    ImmichServerUrl = pair.Bootstrap.ImmichServerUrl,
-                    ShowMemories = pair.Current.ShowMemories,
-                    ShowFavorites = pair.Current.ShowFavorites,
-                    ShowArchived = pair.Current.ShowArchived,
-                    ShowVideos = pair.Current.ShowVideos,
-                    ImagesFromDays = pair.Current.ImagesFromDays,
-                    ImagesFromDate = pair.Current.ImagesFromDate,
-                    ImagesUntilDate = pair.Current.ImagesUntilDate,
-                    Albums = pair.Current.Albums.ToList(),
-                    ExcludedAlbums = pair.Current.ExcludedAlbums.ToList(),
-                    People = pair.Current.People.ToList(),
-                    Tags = pair.Current.Tags.ToList(),
-                    Rating = pair.Current.Rating
+                    bootstrapByIdentifier.TryGetValue(identifier, out var bootstrapAccount);
+                    effectiveByIdentifier.TryGetValue(identifier, out var currentAccount);
+                    var sourceAccount = currentAccount ?? bootstrapAccount ?? throw new InvalidOperationException("Account identifier lookup unexpectedly returned no settings.");
+
+                    return new AdminAccountSettingsDto
+                    {
+                        AccountIdentifier = identifier,
+                        AccountIndex = index,
+                        AccountLabel = $"Account {index + 1}",
+                        ImmichServerUrl = bootstrapAccount?.ImmichServerUrl ?? currentAccount?.ImmichServerUrl ?? string.Empty,
+                        ShowMemories = sourceAccount.ShowMemories,
+                        ShowFavorites = sourceAccount.ShowFavorites,
+                        ShowArchived = sourceAccount.ShowArchived,
+                        ShowVideos = sourceAccount.ShowVideos,
+                        ImagesFromDays = sourceAccount.ImagesFromDays,
+                        ImagesFromDate = sourceAccount.ImagesFromDate,
+                        ImagesUntilDate = sourceAccount.ImagesUntilDate,
+                        Albums = sourceAccount.Albums.ToList(),
+                        ExcludedAlbums = sourceAccount.ExcludedAlbums.ToList(),
+                        People = sourceAccount.People.ToList(),
+                        Tags = sourceAccount.Tags.ToList(),
+                        Rating = sourceAccount.Rating
+                    };
                 })
                 .ToList()
         };
