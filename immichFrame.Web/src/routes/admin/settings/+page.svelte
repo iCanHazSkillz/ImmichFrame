@@ -1507,7 +1507,7 @@
 						</div>
 
 						<div class="mt-5 grid gap-5 xl:grid-cols-2">
-							<div class={subSectionClass}>
+							<div class={`min-w-0 ${subSectionClass}`}>
 								<div class="flex flex-col gap-1">
 									<h3 class="text-xl font-semibold">Weather</h3>
 									<p class="text-sm text-stone-400">
@@ -1750,7 +1750,7 @@
 								</div>
 							</div>
 
-							<div class={subSectionClass}>
+							<div class={`min-w-0 ${subSectionClass}`}>
 								<div class="flex flex-col gap-1">
 									<h3 class="text-xl font-semibold">Calendar</h3>
 									<p class="text-sm text-stone-400">

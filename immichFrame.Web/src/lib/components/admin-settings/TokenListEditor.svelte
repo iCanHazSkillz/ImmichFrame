@@ -13,6 +13,7 @@
 		validator?: ((value: string) => boolean) | null;
 		invalidMessage?: string;
 		normalize?: (value: string) => string;
+		maxVisibleItems?: number;
 	}
 
 	let {
@@ -24,7 +25,8 @@
 		inputType = 'text',
 		validator = null,
 		invalidMessage = 'Please enter a valid value.',
-		normalize = (value: string) => value
+		normalize = (value: string) => value,
+		maxVisibleItems = 5
 	}: Props = $props();
 
 	let pendingValue = $state('');
@@ -89,13 +91,16 @@
 	{/if}
 
 	{#if values.length}
-		<div class="flex flex-wrap gap-2">
+		<div
+			class="flex flex-col gap-2 overflow-y-auto pr-1"
+			style={`max-height: ${maxVisibleItems * 3.25}rem;`}
+		>
 			{#each values as value}
-				<div class="inline-flex max-w-full items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-stone-200">
-					<span class="break-all">{value}</span>
+				<div class="flex min-w-0 w-full items-center gap-2 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-stone-200">
+					<span class="min-w-0 flex-1 truncate" title={value}>{value}</span>
 					<button
 						type="button"
-						class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/10 bg-black/20 text-stone-400 transition hover:border-rose-400/40 hover:text-rose-200"
+						class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-white/10 bg-black/20 text-stone-400 transition hover:border-rose-400/40 hover:text-rose-200"
 						aria-label={`Remove ${value}`}
 						onclick={() => removeValue(value)}
 					>

@@ -436,7 +436,7 @@ public class AdminSettingsControllerTests
     [Test]
     public async Task Update_PersistsSettingsQueuesRefreshAndServesCustomCss()
     {
-        const string expectedCustomCss = "#progressbar { visibility: hidden }";
+        const string expectedCustomCss = "#progressbar { visibility: hidden; }";
         var adminClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
         {
             HandleCookies = true
@@ -527,6 +527,68 @@ public class AdminSettingsControllerTests
         Assert.That(persisted!.General.Interval, Is.EqualTo(90));
         Assert.That(persisted.Accounts[0].ShowFavorites, Is.True);
         Assert.That(persisted.CustomCss, Is.EqualTo(expectedCustomCss));
+
+        var stylesheetResponse = await _factory.CreateClient().GetAsync("/static/custom.css");
+        stylesheetResponse.EnsureSuccessStatusCode();
+        Assert.That(await stylesheetResponse.Content.ReadAsStringAsync(), Is.EqualTo(expectedCustomCss));
+    }
+
+    [Test]
+    public async Task Update_PreservesSafeMultilineCustomCss()
+    {
+        var customCss = """
+            #overlayback,
+            #overlayInfo,
+            #overlaypause,
+            #overlaynext,
+            #overlayback *,
+            #overlayInfo *,
+            #overlaypause *,
+            #overlaynext * {
+              display: none;
+              visibility: hidden;
+              pointer-events: none;
+            }
+            #progressbar{
+              height: 7px;
+              opacity: 0.95;
+            }
+            #imageinfo {
+              left: 1rem;
+              right: auto;
+              text-shadow:
+                0 0 2px rgba(0, 0, 0, 0.95),
+                0 1px 3px rgba(0, 0, 0, 0.9),
+                0 2px 6px rgba(0, 0, 0, 0.75);
+            }
+
+            /* Make the icons stand out too */
+            #imageinfo svg {
+              filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.9))
+                      drop-shadow(0 2px 4px rgba(0, 0, 0, 0.7));
+            }
+            """;
+
+        var expectedCustomCss = customCss
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Trim();
+
+        var adminClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var updateResponse = await adminClient.PutAsJsonAsync("/api/admin/settings", CreateValidUpdateRequest(expectedCustomCss));
+        updateResponse.EnsureSuccessStatusCode();
+
+        var updatedSettings = await updateResponse.Content.ReadFromJsonAsync<AdminSettingsResponseDto>();
+        Assert.That(updatedSettings, Is.Not.Null);
+        Assert.That(updatedSettings!.CustomCss, Is.EqualTo(expectedCustomCss));
+
+        var persistedSettings = await adminClient.GetFromJsonAsync<AdminSettingsResponseDto>("/api/admin/settings");
+        Assert.That(persistedSettings, Is.Not.Null);
+        Assert.That(persistedSettings!.CustomCss, Is.EqualTo(expectedCustomCss));
 
         var stylesheetResponse = await _factory.CreateClient().GetAsync("/static/custom.css");
         stylesheetResponse.EnsureSuccessStatusCode();
@@ -684,7 +746,96 @@ public class AdminSettingsControllerTests
         });
         await LoginAdminAsync(adminClient);
 
-        var updateRequest = new AdminSettingsUpdateRequest
+        var updateRequest = CreateValidUpdateRequest("@import url('https://example.com/evil.css');");
+
+        var response = await adminClient.PutAsJsonAsync("/api/admin/settings", updateRequest);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+    }
+
+    [Test]
+    public async Task Update_ReturnsBadRequest_WhenCustomCssContainsExpression()
+    {
+        var adminClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var response = await adminClient.PutAsJsonAsync(
+            "/api/admin/settings",
+            CreateValidUpdateRequest("#imageinfo { width: expression(alert('x')); }"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+    }
+
+    [Test]
+    public async Task Update_ReturnsBadRequest_WhenCustomCssContainsDataUrl()
+    {
+        var adminClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var response = await adminClient.PutAsJsonAsync(
+            "/api/admin/settings",
+            CreateValidUpdateRequest("#imageinfo { background-image: url(data:text/plain;base64,SGVsbG8=); }"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+    }
+
+    [Test]
+    public async Task Update_ReturnsBadRequest_WhenCustomCssIsInvalid_AndKeepsPreviousStylesheet()
+    {
+        const string validCustomCss = "#progressbar { visibility: hidden; }";
+        var adminClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var validResponse = await adminClient.PutAsJsonAsync("/api/admin/settings", CreateValidUpdateRequest(validCustomCss));
+        validResponse.EnsureSuccessStatusCode();
+
+        var invalidResponse = await adminClient.PutAsJsonAsync(
+            "/api/admin/settings",
+            CreateValidUpdateRequest("#imageinfo { color: red;"));
+
+        Assert.That(invalidResponse.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+
+        var persistedSettings = await adminClient.GetFromJsonAsync<AdminSettingsResponseDto>("/api/admin/settings");
+        Assert.That(persistedSettings, Is.Not.Null);
+        Assert.That(persistedSettings!.CustomCss, Is.EqualTo(validCustomCss));
+
+        var stylesheetResponse = await _factory.CreateClient().GetAsync("/static/custom.css");
+        stylesheetResponse.EnsureSuccessStatusCode();
+        Assert.That(await stylesheetResponse.Content.ReadAsStringAsync(), Is.EqualTo(validCustomCss));
+    }
+
+    private static async Task LoginAdminAsync(HttpClient adminClient)
+    {
+        var loginResponse = await adminClient.PostAsJsonAsync("/api/admin/auth/login", new AdminLoginRequest
+        {
+            Username = "admin",
+            Password = "secret"
+        });
+
+        Assert.That(loginResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK), await loginResponse.Content.ReadAsStringAsync());
+    }
+
+    private static string CreateAccountIdentifier()
+    {
+        return ServerSettingsFactory.BuildAccountIdentifier(new ServerAccountSettings
+        {
+            ImmichServerUrl = TestImmichServerUrl,
+            ApiKey = TestApiKey
+        });
+    }
+
+    private static AdminSettingsUpdateRequest CreateValidUpdateRequest(string customCss)
+    {
+        return new AdminSettingsUpdateRequest
         {
             General = new AdminManagedGeneralSettings
             {
@@ -713,7 +864,7 @@ public class AdminSettingsControllerTests
                 Style = "none",
                 Webcalendars = []
             },
-            CustomCss = "@import url('https://example.com/evil.css');",
+            CustomCss = customCss,
             Accounts =
             [
                 new AdminManagedAccountSettings
@@ -730,29 +881,5 @@ public class AdminSettingsControllerTests
                 }
             ]
         };
-
-        var response = await adminClient.PutAsJsonAsync("/api/admin/settings", updateRequest);
-
-        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
-    }
-
-    private static async Task LoginAdminAsync(HttpClient adminClient)
-    {
-        var loginResponse = await adminClient.PostAsJsonAsync("/api/admin/auth/login", new AdminLoginRequest
-        {
-            Username = "admin",
-            Password = "secret"
-        });
-
-        Assert.That(loginResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK), await loginResponse.Content.ReadAsStringAsync());
-    }
-
-    private static string CreateAccountIdentifier()
-    {
-        return ServerSettingsFactory.BuildAccountIdentifier(new ServerAccountSettings
-        {
-            ImmichServerUrl = TestImmichServerUrl,
-            ApiKey = TestApiKey
-        });
     }
 }
