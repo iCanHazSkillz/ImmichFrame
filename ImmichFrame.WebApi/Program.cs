@@ -81,12 +81,17 @@ builder.Services.AddSingleton(new AdminManagedSettingsStoreOptions
 {
     StorePath = Path.Combine(appDataPath, "admin-settings.json")
 });
+builder.Services.AddSingleton(new AdminManagedSecretsStoreOptions
+{
+    StorePath = Path.Combine(appDataPath, "admin-secrets.json")
+});
 builder.Services.AddSingleton(new CustomCssStoreOptions
 {
     StorePath = Path.Combine(appDataPath, "custom.css"),
     FallbackPath = Path.Combine(builder.Environment.WebRootPath ?? Path.Combine(builder.Environment.ContentRootPath, "wwwroot"), "static", "custom.css")
 });
 builder.Services.AddSingleton<IAdminManagedSettingsStore, AdminManagedSettingsStore>();
+builder.Services.AddSingleton<IAdminManagedSecretsStore, AdminManagedSecretsStore>();
 builder.Services.AddSingleton<ICustomCssStore, CustomCssStore>();
 builder.Services.AddSingleton<ICustomCssValidator, CustomCssValidator>();
 builder.Services.AddSingleton<EffectiveSettingsProvider>();

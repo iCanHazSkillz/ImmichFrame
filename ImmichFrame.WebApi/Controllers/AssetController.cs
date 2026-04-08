@@ -36,35 +36,67 @@ namespace ImmichFrame.WebApi.Controllers
         }
 
         [HttpGet(Name = "GetAssets")]
-        public async Task<List<AssetResponseDto>> GetAssets(string clientIdentifier = "")
+        public async Task<ActionResult<List<AssetResponseDto>>> GetAssets(string clientIdentifier = "")
         {
             var sanitizedClientIdentifier = clientIdentifier.SanitizeString();
             _logger.LogDebug("Assets requested by '{sanitizedClientIdentifier}'", sanitizedClientIdentifier);
-            return (await _logic.GetAssets()).ToList();
+
+            try
+            {
+                return (await _logic.GetAssets()).ToList();
+            }
+            catch (Exception ex) when (IsTransientUpstreamFailure(ex))
+            {
+                return UpstreamUnavailable(
+                    "asset list",
+                    sanitizedClientIdentifier,
+                    ex);
+            }
         }
 
         [HttpGet("{id}/AssetInfo", Name = "GetAssetInfo")]
-        public async Task<AssetResponseDto> GetAssetInfo(Guid id, string clientIdentifier = "")
+        public async Task<ActionResult<AssetResponseDto>> GetAssetInfo(Guid id, string clientIdentifier = "")
         {
             var sanitizedClientIdentifier = clientIdentifier.SanitizeString();
             _logger.LogDebug("AssetInfo '{id}' requested by '{sanitizedClientIdentifier}'", id, sanitizedClientIdentifier);
 
-            return await _logic.GetAssetInfoById(id);
+            try
+            {
+                return await _logic.GetAssetInfoById(id);
+            }
+            catch (Exception ex) when (IsTransientUpstreamFailure(ex))
+            {
+                return UpstreamUnavailable(
+                    $"asset info '{id}'",
+                    sanitizedClientIdentifier,
+                    ex);
+            }
         }
 
         [HttpGet("{id}/AlbumInfo", Name = "GetAlbumInfo")]
-        public async Task<List<AlbumResponseDto>> GetAlbumInfo(Guid id, string clientIdentifier = "")
+        public async Task<ActionResult<List<AlbumResponseDto>>> GetAlbumInfo(Guid id, string clientIdentifier = "")
         {
             var sanitizedClientIdentifier = clientIdentifier.SanitizeString();
             _logger.LogDebug("AlbumInfo '{id}' requested by '{sanitizedClientIdentifier}'", id, sanitizedClientIdentifier);
 
-            return (await _logic.GetAlbumInfoById(id)).ToList() ?? throw new AssetNotFoundException("No asset was found");
+            try
+            {
+                return (await _logic.GetAlbumInfoById(id)).ToList() ?? throw new AssetNotFoundException("No asset was found");
+            }
+            catch (Exception ex) when (IsTransientUpstreamFailure(ex))
+            {
+                return UpstreamUnavailable(
+                    $"album info '{id}'",
+                    sanitizedClientIdentifier,
+                    ex);
+            }
         }
 
         [Obsolete("Use GetAsset instead.")]
         [HttpGet("{id}/Image", Name = "GetImage")]
         [Produces("image/jpeg", "image/webp")]
         [ProducesResponseType(typeof(FileStreamResult), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<IActionResult> GetImage(Guid id, string clientIdentifier = "")
         {
             return await GetAsset(id, clientIdentifier, AssetTypeEnum.IMAGE);
@@ -75,6 +107,7 @@ namespace ImmichFrame.WebApi.Controllers
         [ProducesResponseType(typeof(FileStreamResult), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(FileStreamResult), StatusCodes.Status206PartialContent)]
         [ProducesResponseType(StatusCodes.Status416RangeNotSatisfiable)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<IActionResult> GetAsset(Guid id, string clientIdentifier = "", AssetTypeEnum? assetType = null)
         {
             var sanitizedClientIdentifier = clientIdentifier.SanitizeString();
@@ -90,6 +123,13 @@ namespace ImmichFrame.WebApi.Controllers
             catch (ApiException ex) when (ex.StatusCode == 416)
             {
                 return StatusCode(StatusCodes.Status416RangeNotSatisfiable);
+            }
+            catch (Exception ex) when (IsTransientUpstreamFailure(ex))
+            {
+                return MediaUpstreamUnavailable(
+                    $"asset '{id}'",
+                    sanitizedClientIdentifier,
+                    ex);
             }
 
             if (string.IsNullOrEmpty(rangeHeader))
@@ -126,60 +166,106 @@ namespace ImmichFrame.WebApi.Controllers
 
         [HttpGet("RandomImageAndInfo", Name = "GetRandomImageAndInfo")]
         [Produces("application/json")]
-        public async Task<ImageResponse> GetRandomImageAndInfo(string clientIdentifier = "")
+        public async Task<ActionResult<ImageResponse>> GetRandomImageAndInfo(string clientIdentifier = "")
         {
             var sanitizedClientIdentifier = clientIdentifier.SanitizeString();
             _logger.LogDebug("Random image requested by '{sanitizedClientIdentifier}'", sanitizedClientIdentifier);
 
-            AssetResponseDto? randomAsset = null;
-            const int maxAttempts = 10;
-            for (int i = 0; i < maxAttempts; i++)
+            try
             {
-                var candidate = await _logic.GetNextAsset();
-                if (candidate == null) break;
-                if (candidate.Type == AssetTypeEnum.IMAGE)
+                AssetResponseDto? randomAsset = null;
+                const int maxAttempts = 10;
+                for (int i = 0; i < maxAttempts; i++)
                 {
-                    randomAsset = candidate;
-                    break;
+                    var candidate = await _logic.GetNextAsset();
+                    if (candidate == null) break;
+                    if (candidate.Type == AssetTypeEnum.IMAGE)
+                    {
+                        randomAsset = candidate;
+                        break;
+                    }
                 }
+
+                if (randomAsset == null)
+                    throw new AssetNotFoundException("No image asset was found");
+
+                var asset = await _logic.GetAsset(new Guid(randomAsset.Id), AssetTypeEnum.IMAGE);
+                var notification = new AssetRequestedNotification(new Guid(randomAsset.Id), sanitizedClientIdentifier);
+                _ = _logic.SendWebhookNotification(notification);
+
+                string randomImageBase64;
+                using (var memoryStream = new MemoryStream())
+                {
+                    await asset.FileStream.CopyToAsync(memoryStream);
+                    randomImageBase64 = Convert.ToBase64String(memoryStream.ToArray());
+                }
+
+                randomAsset.ThumbhashImage!.Position = 0;
+                byte[] byteArray = new byte[randomAsset.ThumbhashImage.Length];
+                randomAsset.ThumbhashImage.Read(byteArray, 0, byteArray.Length);
+                string thumbHashBase64 = Convert.ToBase64String(byteArray);
+
+                CultureInfo cultureInfo = new CultureInfo(_settings.Language);
+                string photoDateFormat = _settings.PhotoDateFormat!.Replace("''", "\\'");
+                string photoDate = randomAsset.LocalDateTime.ToString(photoDateFormat, cultureInfo) ?? string.Empty;
+
+                var locationFormat = _settings.ImageLocationFormat ?? "City,State,Country";
+                var imageLocation = locationFormat
+                    .Replace("City", randomAsset.ExifInfo?.City ?? string.Empty)
+                    .Replace("State", randomAsset.ExifInfo?.State ?? string.Empty)
+                    .Replace("Country", randomAsset.ExifInfo?.Country ?? string.Empty);
+                imageLocation = string.Join(",", imageLocation.Split(',').Where(s => !string.IsNullOrWhiteSpace(s)));
+
+                return new ImageResponse
+                {
+                    RandomImageBase64 = randomImageBase64,
+                    ThumbHashImageBase64 = thumbHashBase64,
+                    PhotoDate = photoDate,
+                    ImageLocation = imageLocation
+                };
             }
-
-            if (randomAsset == null)
-                throw new AssetNotFoundException("No image asset was found");
-
-            var asset = await _logic.GetAsset(new Guid(randomAsset.Id), AssetTypeEnum.IMAGE);
-            var notification = new AssetRequestedNotification(new Guid(randomAsset.Id), sanitizedClientIdentifier);
-            _ = _logic.SendWebhookNotification(notification);
-
-            string randomImageBase64;
-            using (var memoryStream = new MemoryStream())
+            catch (Exception ex) when (IsTransientUpstreamFailure(ex))
             {
-                await asset.FileStream.CopyToAsync(memoryStream);
-                randomImageBase64 = Convert.ToBase64String(memoryStream.ToArray());
+                return UpstreamUnavailable(
+                    "random image",
+                    sanitizedClientIdentifier,
+                    ex);
             }
+        }
 
-            randomAsset.ThumbhashImage!.Position = 0;
-            byte[] byteArray = new byte[randomAsset.ThumbhashImage.Length];
-            randomAsset.ThumbhashImage.Read(byteArray, 0, byteArray.Length);
-            string thumbHashBase64 = Convert.ToBase64String(byteArray);
+        private IActionResult MediaUpstreamUnavailable(string operation, string sanitizedClientIdentifier, Exception ex)
+        {
+            _logger.LogWarning(
+                "Immich upstream unavailable while serving {operation} for '{sanitizedClientIdentifier}': {message}",
+                operation,
+                sanitizedClientIdentifier,
+                ex.Message);
 
-            CultureInfo cultureInfo = new CultureInfo(_settings.Language);
-            string photoDateFormat = _settings.PhotoDateFormat!.Replace("''", "\\'");
-            string photoDate = randomAsset.LocalDateTime.ToString(photoDateFormat, cultureInfo) ?? string.Empty;
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
 
-            var locationFormat = _settings.ImageLocationFormat ?? "City,State,Country";
-            var imageLocation = locationFormat
-                .Replace("City", randomAsset.ExifInfo?.City ?? string.Empty)
-                .Replace("State", randomAsset.ExifInfo?.State ?? string.Empty)
-                .Replace("Country", randomAsset.ExifInfo?.Country ?? string.Empty);
-            imageLocation = string.Join(",", imageLocation.Split(',').Where(s => !string.IsNullOrWhiteSpace(s)));
+        private ObjectResult UpstreamUnavailable(string operation, string sanitizedClientIdentifier, Exception ex)
+        {
+            _logger.LogWarning(
+                "Immich upstream unavailable while serving {operation} for '{sanitizedClientIdentifier}': {message}",
+                operation,
+                sanitizedClientIdentifier,
+                ex.Message);
 
-            return new ImageResponse
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                "Immich upstream is temporarily unavailable. Please retry.");
+        }
+
+        private static bool IsTransientUpstreamFailure(Exception ex)
+        {
+            return ex switch
             {
-                RandomImageBase64 = randomImageBase64,
-                ThumbHashImageBase64 = thumbHashBase64,
-                PhotoDate = photoDate,
-                ImageLocation = imageLocation
+                HttpRequestException => true,
+                TimeoutException => true,
+                TaskCanceledException => true,
+                ApiException apiException when apiException.StatusCode is 408 or 429 or >= 500 => true,
+                _ => false
             };
         }
     }

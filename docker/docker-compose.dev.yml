@@ -10,5 +10,5 @@ services:
     environment:
       TZ: "${TZ:-Etc/UTC}"
     volumes:
-      - ./data/Config:/app/Config
-      - ./data/App_Data:/app/App_Data
+      - ${Config}:/app/Config
+      - ${App_Data}:/app/App_Data

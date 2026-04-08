@@ -58,6 +58,8 @@ public class ServerSettingsV1 : IConfigSettable
     public string? WeatherFontSize { get; set; }
     public string? CalendarFontSize { get; set; }
     public string? MetadataFontSize { get; set; }
+    public string? CalendarTimeZone { get; set; }
+    public string? CalendarDateFormat { get; set; }
     public string? ClockStyle { get; set; }
     public string? WeatherStyle { get; set; }
     public string? CalendarStyle { get; set; }
@@ -155,6 +157,8 @@ public class ServerSettingsV1Adapter(ServerSettingsV1 _delegate) : IServerSettin
         public string? WeatherFontSize => _delegate.WeatherFontSize;
         public string? CalendarFontSize => _delegate.CalendarFontSize;
         public string? MetadataFontSize => _delegate.MetadataFontSize;
+        public string? CalendarTimeZone => _delegate.CalendarTimeZone;
+        public string? CalendarDateFormat => _delegate.CalendarDateFormat;
         public string? ClockStyle => _delegate.ClockStyle;
         public string? WeatherStyle => _delegate.WeatherStyle;
         public string? CalendarStyle => _delegate.CalendarStyle;

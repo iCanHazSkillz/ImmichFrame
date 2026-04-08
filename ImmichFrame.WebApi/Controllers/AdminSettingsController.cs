@@ -2,6 +2,7 @@ using ImmichFrame.WebApi.Models;
 using ImmichFrame.WebApi.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ImmichFrame.Core.Helpers;
 
 namespace ImmichFrame.WebApi.Controllers;
 
@@ -38,7 +39,10 @@ public class AdminSettingsController : ControllerBase
             snapshot.Version,
             snapshot.Settings,
             _bootstrapSettingsHolder.Settings,
-            snapshot.CustomCss));
+            snapshot.CustomCss,
+            !string.IsNullOrWhiteSpace(snapshot.Settings.GeneralSettings.WeatherApiKey),
+            TimeZoneSettingsHelper.ResolveServerTimeZoneId(),
+            TimeZoneInfo.GetSystemTimeZones().Select(timeZone => timeZone.Id).ToList()));
     }
 
     [HttpPut]
@@ -53,6 +57,15 @@ public class AdminSettingsController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
+        var existingSnapshot = _settingsProvider.GetCurrentSnapshot();
+        var hasWeatherApiKey = !string.IsNullOrWhiteSpace(existingSnapshot.Settings.GeneralSettings.WeatherApiKey)
+            || !string.IsNullOrWhiteSpace(request.WeatherApiKey);
+        if (document.General.ShowWeather && !hasWeatherApiKey)
+        {
+            ModelState.AddModelError(nameof(request.WeatherApiKey), "A weather API key is required before the weather widget can be enabled.");
+            return ValidationProblem(ModelState);
+        }
+
         string sanitizedCustomCss;
         try
         {
@@ -64,7 +77,7 @@ public class AdminSettingsController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
-        var snapshot = _settingsProvider.Update(document, sanitizedCustomCss);
+        var snapshot = _settingsProvider.Update(document, sanitizedCustomCss, request.WeatherApiKey);
 
         foreach (var session in _frameSessionRegistry.GetActiveSessions())
         {
@@ -79,6 +92,9 @@ public class AdminSettingsController : ControllerBase
             snapshot.Version,
             snapshot.Settings,
             _bootstrapSettingsHolder.Settings,
-            snapshot.CustomCss));
+            snapshot.CustomCss,
+            !string.IsNullOrWhiteSpace(snapshot.Settings.GeneralSettings.WeatherApiKey),
+            TimeZoneSettingsHelper.ResolveServerTimeZoneId(),
+            TimeZoneInfo.GetSystemTimeZones().Select(timeZone => timeZone.Id).ToList()));
     }
 }

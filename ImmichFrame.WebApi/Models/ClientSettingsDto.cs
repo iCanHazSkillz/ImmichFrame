@@ -1,4 +1,5 @@
 using ImmichFrame.Core.Interfaces;
+using ImmichFrame.Core.Helpers;
 
 namespace ImmichFrame.WebApi.Models;
 
@@ -33,6 +34,8 @@ public class ClientSettingsDto
     public string? WeatherFontSize { get; set; }
     public string? CalendarFontSize { get; set; }
     public string? MetadataFontSize { get; set; }
+    public string? CalendarTimeZone { get; set; }
+    public string? CalendarDateFormat { get; set; }
     public string? ClockStyle { get; set; }
     public string? WeatherStyle { get; set; }
     public string? CalendarStyle { get; set; }
@@ -85,6 +88,8 @@ public class ClientSettingsDto
         dto.WeatherFontSize = generalSettings.WeatherFontSize;
         dto.CalendarFontSize = generalSettings.CalendarFontSize;
         dto.MetadataFontSize = generalSettings.MetadataFontSize;
+        dto.CalendarTimeZone = TimeZoneSettingsHelper.ResolveCalendarTimeZoneId(generalSettings.CalendarTimeZone);
+        dto.CalendarDateFormat = generalSettings.CalendarDateFormat;
         dto.ClockStyle = generalSettings.ClockStyle;
         dto.WeatherStyle = generalSettings.WeatherStyle;
         dto.CalendarStyle = generalSettings.CalendarStyle;

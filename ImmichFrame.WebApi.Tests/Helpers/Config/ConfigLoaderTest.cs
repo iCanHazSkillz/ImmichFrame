@@ -111,6 +111,10 @@ public class ConfigLoaderTest
                     {
                         Assert.That(value, Is.EqualTo(null), prop.Name);
                     }
+                    else if (prop.Name is "CalendarTimeZone" or "CalendarDateFormat")
+                    {
+                        Assert.That(value, Is.Null.Or.EqualTo(string.Empty).Or.EqualTo(prefix + prop.Name + "_TEST"), prop.Name);
+                    }
                     else if (prop.Name.Equals("AccountIdentifier"))
                     {
                         Assert.That(value, Is.EqualTo(string.Empty), prop.Name);
@@ -164,6 +168,12 @@ public class ConfigLoaderTest
                 if (ignoreNullValues && value == null)
                 {
                     continue; // Skip if value is null and ignoreNullValues is true
+                }
+
+                if (value == null)
+                {
+                    dictionary.Add(prop.Name, value!);
+                    continue;
                 }
 
                 if (!(value is string) && value is IEnumerable)

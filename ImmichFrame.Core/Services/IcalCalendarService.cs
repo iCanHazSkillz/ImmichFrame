@@ -26,10 +26,12 @@ public class IcalCalendarService : ICalendarService
     {
         var snapshot = _settingsProvider.GetCurrentSnapshot();
         var settings = snapshot.Settings.GeneralSettings;
+        var calendarTimeZone = TimeZoneSettingsHelper.ResolveCalendarTimeZone(settings.CalendarTimeZone);
         var cache = GetCache(snapshot.Version);
         return await cache.GetOrAddAsync("appointments", async () =>
         {
             var appointments = new List<IAppointment>();
+            var (windowStart, windowEnd) = GetTodayWindow(calendarTimeZone);
 
             List<(string? auth, string url)> cals = settings.Webcalendars.Select<string, (string? auth, string url)?>(x =>
             {
@@ -63,7 +65,10 @@ public class IcalCalendarService : ICalendarService
             {
                 var calendar = Calendar.Load(ical);
 
-                appointments.AddRange(calendar.GetOccurrences(DateTime.Today, DateTime.Today.AddDays(1)).Select(x => x.ToAppointment()));
+                appointments.AddRange(
+                    calendar
+                        .GetOccurrences(windowStart, windowEnd)
+                        .Select(occurrence => occurrence.ToAppointment(calendarTimeZone)));
             }
 
             return appointments;
@@ -133,5 +138,12 @@ public class IcalCalendarService : ICalendarService
 
         oldCache?.Dispose();
         return newCache!;
+    }
+
+    private static (DateTime Start, DateTime End) GetTodayWindow(TimeZoneInfo calendarTimeZone)
+    {
+        var now = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, calendarTimeZone);
+        var start = new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Unspecified);
+        return (start, start.AddDays(1));
     }
 }

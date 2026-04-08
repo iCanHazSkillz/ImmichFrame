@@ -215,6 +215,7 @@ export type ClientSettingsDto = {
     weatherFontSize?: string | null;
     calendarFontSize?: string | null;
     metadataFontSize?: string | null;
+    calendarTimeZone?: string | null;
     clockStyle?: string | null;
     weatherStyle?: string | null;
     calendarStyle?: string | null;

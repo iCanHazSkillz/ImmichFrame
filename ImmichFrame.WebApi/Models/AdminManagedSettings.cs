@@ -63,6 +63,8 @@ public class AdminManagedGeneralSettings
     public string? WeatherFontSize { get; set; }
     public string? CalendarFontSize { get; set; }
     public string? MetadataFontSize { get; set; }
+    public string? CalendarTimeZone { get; set; }
+    public string? CalendarDateFormat { get; set; }
     public string? ClockStyle { get; set; }
     public string? WeatherStyle { get; set; }
     public string? CalendarStyle { get; set; }
@@ -93,6 +95,10 @@ public class AdminManagedGeneralSettings
             .Where(static value => !string.IsNullOrWhiteSpace(value))
             .ToList();
         Language ??= "en";
+        CalendarTimeZone = TimeZoneSettingsHelper.NormalizeTimeZoneId(CalendarTimeZone);
+        CalendarDateFormat = string.IsNullOrWhiteSpace(CalendarDateFormat)
+            ? null
+            : CalendarDateFormat.Trim();
         if (!ShowPeopleDesc)
         {
             ShowPeopleAge = false;
@@ -156,6 +162,8 @@ public class AdminManagedGeneralSettings
         settings.WeatherFontSize = WeatherFontSize;
         settings.CalendarFontSize = CalendarFontSize;
         settings.MetadataFontSize = MetadataFontSize;
+        settings.CalendarTimeZone = CalendarTimeZone;
+        settings.CalendarDateFormat = CalendarDateFormat;
         settings.ClockStyle = ClockStyle;
         settings.WeatherStyle = WeatherStyle;
         settings.CalendarStyle = CalendarStyle;
@@ -215,6 +223,8 @@ public class AdminManagedGeneralSettings
             WeatherFontSize = settings.WeatherFontSize,
             CalendarFontSize = settings.CalendarFontSize,
             MetadataFontSize = settings.MetadataFontSize,
+            CalendarTimeZone = settings.CalendarTimeZone,
+            CalendarDateFormat = settings.CalendarDateFormat,
             ClockStyle = settings.ClockStyle,
             WeatherStyle = settings.WeatherStyle,
             CalendarStyle = settings.CalendarStyle,

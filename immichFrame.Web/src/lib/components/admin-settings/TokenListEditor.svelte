@@ -14,6 +14,8 @@
 		invalidMessage?: string;
 		normalize?: (value: string) => string;
 		maxVisibleItems?: number;
+		hasError?: boolean;
+		errorMessage?: string;
 	}
 
 	let {
@@ -26,7 +28,9 @@
 		validator = null,
 		invalidMessage = 'Please enter a valid value.',
 		normalize = (value: string) => value,
-		maxVisibleItems = 5
+		maxVisibleItems = 5,
+		hasError = false,
+		errorMessage = ''
 	}: Props = $props();
 
 	let pendingValue = $state('');
@@ -65,7 +69,9 @@
 		<input
 			{id}
 			type={inputType}
-			class="min-w-0 flex-1 rounded-2xl border border-white/12 bg-stone-950/85 px-4 py-3 text-sm text-stone-100 outline-none transition placeholder:text-stone-500 focus:border-[color:var(--primary-color)]/75"
+			class={`min-w-0 flex-1 rounded-2xl border bg-stone-950/85 px-4 py-3 text-sm text-stone-100 outline-none transition placeholder:text-stone-500 focus:border-[color:var(--primary-color)]/75 ${
+				hasError ? 'border-rose-400/70' : 'border-white/12'
+			}`}
 			bind:value={pendingValue}
 			{placeholder}
 			onkeydown={(event) => {
@@ -88,6 +94,10 @@
 
 	{#if feedback}
 		<p class="text-xs text-rose-300">{feedback}</p>
+	{/if}
+
+	{#if errorMessage}
+		<p class="text-xs text-rose-300">{errorMessage}</p>
 	{/if}
 
 	{#if values.length}

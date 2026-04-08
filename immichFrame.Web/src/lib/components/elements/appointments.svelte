@@ -1,6 +1,6 @@
 <script lang="ts">
 	import * as api from '$lib/index';
-	import { format, isSameDay, isToday, isValid } from 'date-fns';
+	import { format, isValid } from 'date-fns';
 	import { configStore } from '$lib/stores/config.store';
 	import { clientIdentifierStore } from '$lib/stores/persist.store';
 	import {
@@ -11,6 +11,63 @@
 
 	api.init();
 
+	function getCalendarTimeZone() {
+		return $configStore.calendarTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+	}
+
+	function getZonedFormatter(timeZone: string) {
+		return new Intl.DateTimeFormat('en-CA', {
+			timeZone,
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit',
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit',
+			hourCycle: 'h23'
+		});
+	}
+
+	function getZonedDisplayDate(date: Date, timeZone: string) {
+		const parts = getZonedFormatter(timeZone).formatToParts(date);
+
+		const getPart = (type: Intl.DateTimeFormatPartTypes) =>
+			Number.parseInt(parts.find((part) => part.type === type)?.value ?? '', 10);
+
+		const year = getPart('year');
+		const month = getPart('month');
+		const day = getPart('day');
+		const hour = getPart('hour');
+		const minute = getPart('minute');
+		const second = getPart('second');
+
+		if (
+			!Number.isFinite(year) ||
+			!Number.isFinite(month) ||
+			!Number.isFinite(day) ||
+			!Number.isFinite(hour) ||
+			!Number.isFinite(minute) ||
+			!Number.isFinite(second)
+		) {
+			return null;
+		}
+
+		return new Date(year, month - 1, day, hour, minute, second);
+	}
+
+	function formatInCalendarTimeZone(date: Date, formatString: string, timeZone: string) {
+		const zonedDisplayDate = getZonedDisplayDate(date, timeZone);
+		if (!zonedDisplayDate) {
+			return '';
+		}
+
+		try {
+			return format(zonedDisplayDate, formatString);
+		} catch {
+			return format(zonedDisplayDate, 'yyyy-MM-dd HH:mm');
+		}
+	}
+
 	function formatTimeRange(startTime: string, endTime: string) {
 		const startDate = new Date(startTime);
 		const endDate = new Date(endTime);
@@ -18,14 +75,9 @@
 			return '';
 		}
 
+		const timeZone = getCalendarTimeZone();
 		const clockFormat = $configStore.clockFormat ?? 'HH:mm';
-		if (isSameDay(startDate, endDate) && isToday(startDate)) {
-			return `${format(startDate, clockFormat)} - ${format(endDate, clockFormat)}`;
-		}
-
-		const dateFormat = $configStore.photoDateFormat ?? 'yyyy-MM-dd';
-		const dateTimeFormat = `${dateFormat} ${clockFormat}`;
-		return `${format(startDate, dateTimeFormat)} - ${format(endDate, dateTimeFormat)}`;
+		return `${formatInCalendarTimeZone(startDate, clockFormat, timeZone)} - ${formatInCalendarTimeZone(endDate, clockFormat, timeZone)}`;
 	}
 
 	let appointments = $state<api.IAppointment[]>([]);
@@ -55,8 +107,6 @@
 			clientIdentifier: $clientIdentifierStore
 		});
 		if (appointmentRequest.status == 200) {
-			appointments = appointmentRequest.data;
-
 			appointments = appointmentRequest.data.sort((a, b) => {
 				return new Date(a.startTime ?? '').getTime() - new Date(b.startTime ?? '').getTime();
 			});

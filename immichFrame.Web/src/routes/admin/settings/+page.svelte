@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { beforeNavigate } from '$app/navigation';
-	import { mdiArrowLeft, mdiContentSave, mdiLogout } from '@mdi/js';
+	import { mdiArrowLeft, mdiContentSave, mdiEyeOffOutline, mdiEyeOutline, mdiLogout } from '@mdi/js';
 	import { onMount } from 'svelte';
 	import ColorInput from '$lib/components/admin-settings/ColorInput.svelte';
 	import PresetSelect from '$lib/components/admin-settings/PresetSelect.svelte';
@@ -241,14 +241,25 @@
 	let savePending = $state(false);
 	let draft: AdminSettingsResponseDto | null = $state(null);
 	let savedSettingsState = $state('');
+	let weatherApiKeyInput = $state('');
+	let showWeatherApiKey = $state(false);
+	let weatherApiKeyFieldError = $state('');
+	let webcalendarsFieldError = $state('');
 
 	const serializedDraft = $derived(draft ? serializeEditableSettings(draft) : '');
-	const isDirty = $derived(Boolean(draft) && serializedDraft !== savedSettingsState);
+	const trimmedWeatherApiKeyInput = $derived(weatherApiKeyInput.trim());
+	const isDirty = $derived(
+		Boolean(draft) &&
+			(serializedDraft !== savedSettingsState || trimmedWeatherApiKeyInput.length > 0)
+	);
 	const widgetStackOrder = $derived.by(() =>
 		draft ? normalizeWidgetStackOrder(draft.general.widgetStackOrder) : [...widgetStackDefaults]
 	);
 	const calendarNeedsFeed = $derived.by(
 		() => Boolean(draft && draft.general.showCalendar && (draft.general.webcalendars?.length ?? 0) === 0)
+	);
+	const sortedAvailableTimeZones = $derived.by(() =>
+		(draft?.availableTimeZones ?? []).slice().sort((a, b) => a.localeCompare(b))
 	);
 
 	const firstVideoAccountIndex = $derived.by(() => {
@@ -287,8 +298,13 @@
 
 	function applyLoadedSettings(settings: AdminSettingsResponseDto) {
 		const nextDraft = deepCloneSettings(settings);
+		delete (nextDraft.general as unknown as { calendarDateFormat?: unknown }).calendarDateFormat;
 		draft = nextDraft;
 		savedSettingsState = serializeEditableSettings(nextDraft);
+		weatherApiKeyInput = '';
+		showWeatherApiKey = false;
+		weatherApiKeyFieldError = '';
+		webcalendarsFieldError = '';
 	}
 
 	function formatDateInput(value?: string | null) {
@@ -353,6 +369,10 @@
 			general: nextGeneral
 		};
 		saveErrorMessage = '';
+		if (key === 'showWeather' || key === 'showCalendar') {
+			weatherApiKeyFieldError = '';
+			webcalendarsFieldError = '';
+		}
 	}
 
 	function isMetadataToggleDisabled(key: keyof AdminManagedGeneralSettings) {
@@ -486,8 +506,19 @@
 		if (!draft) return;
 
 		if (draft.general.showCalendar && (draft.general.webcalendars?.length ?? 0) === 0) {
+			webcalendarsFieldError = 'This field is required before the calendar widget can be enabled.';
 			saveErrorMessage = 'Add at least one webcalendar before enabling the calendar widget.';
 			saveSuccessMessage = '';
+			document.getElementById('webcalendars-nested')?.focus();
+			return;
+		}
+
+		if (draft.general.showWeather && !draft.weatherApiKeyConfigured && trimmedWeatherApiKeyInput.length === 0) {
+			weatherApiKeyFieldError = 'This field is required before the weather widget can be enabled.';
+			saveErrorMessage =
+				'Add a weather API key before enabling the weather widget, or keep weather disabled.';
+			saveSuccessMessage = '';
+			document.getElementById('weatherApiKey-nested')?.focus();
 			return;
 		}
 
@@ -499,6 +530,7 @@
 			const updated = await updateAdminSettings({
 				general: draft.general,
 				customCss: draft.customCss,
+				weatherApiKey: trimmedWeatherApiKeyInput.length > 0 ? trimmedWeatherApiKeyInput : undefined,
 				accounts: draft.accounts.map((account) => ({
 					accountIdentifier: account.accountIdentifier,
 					showMemories: account.showMemories,
@@ -566,6 +598,24 @@
 	$effect(() => {
 		if (isDirty && saveSuccessMessage) {
 			saveSuccessMessage = '';
+		}
+	});
+
+	$effect(() => {
+		if (!draft) {
+			return;
+		}
+
+		if (
+			!draft.general.showWeather ||
+			draft.weatherApiKeyConfigured ||
+			trimmedWeatherApiKeyInput.length > 0
+		) {
+			weatherApiKeyFieldError = '';
+		}
+
+		if (!draft.general.showCalendar || (draft.general.webcalendars?.length ?? 0) > 0) {
+			webcalendarsFieldError = '';
 		}
 	});
 
@@ -1441,67 +1491,69 @@
 										{/if}
 									</div>
 
-									<div class="space-y-4">
-										<p class="text-xs uppercase tracking-[0.3em] text-stone-500">Widget Size And Layout</p>
-										<div class="grid gap-4 md:grid-cols-3">
-											<div class="space-y-2">
-												<SettingLabel
-													label="Corner Position"
-													description="Sets the corner used by the clock widget."
-													defaultValue="bottom-left"
-													options="top-left, top-right, bottom-left, or bottom-right."
-													example="top-left"
-												/>
-												<select
-													class={inputClass}
-													value={draft.general.clockPosition}
-													onchange={(event) =>
-														updateGeneral(
-															'clockPosition',
-															(event.currentTarget as HTMLSelectElement).value
-														)}
-												>
-													{#each widgetPositionOptions as option}
-														<option value={option.value}>{option.label}</option>
-													{/each}
-												</select>
-											</div>
+									{#if draft.general.showClock}
+										<div class="space-y-4">
+											<p class="text-xs uppercase tracking-[0.3em] text-stone-500">Widget Size And Layout</p>
+											<div class="grid gap-4 md:grid-cols-3">
+												<div class="space-y-2">
+													<SettingLabel
+														label="Corner Position"
+														description="Sets the corner used by the clock widget."
+														defaultValue="bottom-left"
+														options="top-left, top-right, bottom-left, or bottom-right."
+														example="top-left"
+													/>
+													<select
+														class={inputClass}
+														value={draft.general.clockPosition}
+														onchange={(event) =>
+															updateGeneral(
+																'clockPosition',
+																(event.currentTarget as HTMLSelectElement).value
+															)}
+													>
+														{#each widgetPositionOptions as option}
+															<option value={option.value}>{option.label}</option>
+														{/each}
+													</select>
+												</div>
 
-											<div class="space-y-2">
-												<SettingLabel
-													label="Widget Font Size"
-													description="Overrides the global font size only for the clock widget."
-													defaultValue="Uses global font size"
-													options="Preset CSS sizes or a custom CSS font-size value."
-													example="xx-large"
-												/>
-												<PresetSelect
-													bind:value={draft.general.clockFontSize}
-													options={baseFontSizeOptions}
-													allowEmpty
-													emptyLabel="Use global font size"
-													customPlaceholder="Enter a custom CSS font size"
-												/>
-											</div>
+												<div class="space-y-2">
+													<SettingLabel
+														label="Widget Font Size"
+														description="Overrides the global font size only for the clock widget."
+														defaultValue="Uses global font size"
+														options="Preset CSS sizes or a custom CSS font-size value."
+														example="xx-large"
+													/>
+													<PresetSelect
+														bind:value={draft.general.clockFontSize}
+														options={baseFontSizeOptions}
+														allowEmpty
+														emptyLabel="Use global font size"
+														customPlaceholder="Enter a custom CSS font size"
+													/>
+												</div>
 
-											<div class="space-y-2">
-												<SettingLabel
-													label="Widget Style"
-													description="Overrides the global widget style only for the clock."
-													defaultValue="Uses global widget style"
-													options="none, solid, transition, blur, or blank to inherit the global style."
-													example="solid"
-												/>
-												<PresetSelect
-													bind:value={draft.general.clockStyle}
-													options={widgetStyleOptions}
-													allowEmpty
-													allowCustom={false}
-													emptyLabel="Use global widget style"
-												/>
+												<div class="space-y-2">
+													<SettingLabel
+														label="Widget Style"
+														description="Overrides the global widget style only for the clock."
+														defaultValue="Uses global widget style"
+														options="none, solid, transition, blur, or blank to inherit the global style."
+														example="solid"
+													/>
+													<PresetSelect
+														bind:value={draft.general.clockStyle}
+														options={widgetStyleOptions}
+														allowEmpty
+														allowCustom={false}
+														emptyLabel="Use global widget style"
+													/>
+												</div>
 											</div>
 										</div>
-									</div>
+									{/if}
 								</div>
 							</div>
 						</div>
@@ -1523,7 +1575,7 @@
 												<SettingLabel
 													fieldId="showWeather-nested"
 													label="Show Weather"
-													description="Displays the weather block on the frame. Weather credentials remain bootstrap-managed and are not stored in runtime admin settings."
+													description="Displays the weather block on the frame. A weather API key must already be configured before this can be enabled."
 													defaultValue="true"
 													options="true or false."
 													example="Disable it for frames that should only show photos and metadata."
@@ -1540,6 +1592,57 @@
 										</div>
 
 										{#if draft.general.showWeather}
+										<div class="space-y-2">
+											<SettingLabel
+												fieldId="weatherApiKey-nested"
+												label="Weather API Key"
+												description="Write-only OpenWeatherMap API key used for weather requests. Leave it blank to keep the currently configured key unchanged."
+												defaultValue="Blank"
+												options="Any valid OpenWeatherMap API key."
+												example="abc123..."
+											/>
+											<div class="relative">
+												<input
+													id="weatherApiKey-nested"
+													class={`${inputClass} pr-14 ${weatherApiKeyFieldError ? 'border-rose-400/70 focus:border-rose-300' : ''}`}
+													type={showWeatherApiKey ? 'text' : 'password'}
+													value={weatherApiKeyInput}
+													placeholder={draft.weatherApiKeyConfigured
+														? 'Weather API key already configured'
+														: 'Enter a weather API key'}
+													oninput={(event) => {
+														weatherApiKeyInput = (event.currentTarget as HTMLInputElement).value;
+														saveErrorMessage = '';
+													}}
+												/>
+												<button
+													class="absolute inset-y-0 right-0 inline-flex items-center justify-center px-4 text-stone-300 transition hover:text-stone-100"
+													type="button"
+													aria-label={showWeatherApiKey ? 'Hide weather API key' : 'Show weather API key'}
+													aria-pressed={showWeatherApiKey}
+													onclick={() => {
+														showWeatherApiKey = !showWeatherApiKey;
+													}}
+												>
+													<Icon
+														path={showWeatherApiKey ? mdiEyeOffOutline : mdiEyeOutline}
+														title={showWeatherApiKey ? 'Hide weather API key' : 'Show weather API key'}
+														size="1.1rem"
+													/>
+												</button>
+											</div>
+											<p class="text-xs text-stone-500">
+												{#if draft.weatherApiKeyConfigured}
+													A weather API key is already configured. Saving a new value replaces it; leaving this blank keeps the current key.
+												{:else}
+													No weather API key is configured yet. Add one before turning on the weather widget.
+												{/if}
+											</p>
+											{#if weatherApiKeyFieldError}
+												<p class="text-xs text-rose-300">{weatherApiKeyFieldError}</p>
+											{/if}
+										</div>
+
 										<div class="grid gap-4 md:grid-cols-2">
 											<div class="space-y-2">
 												<SettingLabel
@@ -1797,12 +1900,44 @@
 												placeholder="Add a calendar feed URL"
 												emptyState="No calendar feeds have been added."
 												inputType="url"
+												hasError={Boolean(webcalendarsFieldError)}
+												errorMessage={webcalendarsFieldError}
 											/>
 											{#if calendarNeedsFeed}
 												<p class="text-xs text-amber-300">
 													Add at least one calendar feed while Show Calendar is enabled.
 												</p>
 											{/if}
+										</div>
+										{/if}
+
+										{#if draft.general.showCalendar}
+										<div class="space-y-2">
+											<SettingLabel
+												fieldId="calendarTimeZone-nested"
+												label="Calendar Timezone"
+												description="Choose which timezone defines calendar event days and display times. Calendar events are shown as time-only ranges using the selected clock format."
+												defaultValue="Use server timezone"
+												options="Any available IANA timezone identifier."
+												example="America/Edmonton"
+											/>
+											<select
+												id="calendarTimeZone-nested"
+												class={inputClass}
+												value={draft.general.calendarTimeZone ?? ''}
+												onchange={(event) =>
+													updateGeneral(
+														'calendarTimeZone',
+														(event.currentTarget as HTMLSelectElement).value || null
+													)}
+											>
+												<option value="">
+													Use server timezone ({draft.serverTimeZone})
+												</option>
+												{#each sortedAvailableTimeZones as timeZone}
+													<option value={timeZone}>{timeZone}</option>
+												{/each}
+											</select>
 										</div>
 										{/if}
 									</div>
@@ -2049,7 +2184,7 @@
 							<button
 								type="button"
 								class="inline-flex items-center justify-center gap-2 rounded-full border border-[color:var(--primary-color)]/40 bg-[color:var(--primary-color)]/15 px-5 py-3 text-sm font-medium text-[color:var(--primary-color)] transition hover:bg-[color:var(--primary-color)]/25 disabled:cursor-not-allowed disabled:opacity-50"
-								disabled={savePending || !isDirty || calendarNeedsFeed}
+								disabled={savePending || !isDirty}
 								onclick={() => void saveSettings()}
 							>
 								<Icon path={mdiContentSave} title="Save settings" size="1rem" />

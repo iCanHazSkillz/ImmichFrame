@@ -55,6 +55,8 @@ public static class ServerSettingsFactory
             WeatherFontSize = settings.WeatherFontSize,
             CalendarFontSize = settings.CalendarFontSize,
             MetadataFontSize = settings.MetadataFontSize,
+            CalendarTimeZone = settings.CalendarTimeZone,
+            CalendarDateFormat = settings.CalendarDateFormat,
             ClockStyle = settings.ClockStyle,
             WeatherStyle = settings.WeatherStyle,
             CalendarStyle = settings.CalendarStyle,
