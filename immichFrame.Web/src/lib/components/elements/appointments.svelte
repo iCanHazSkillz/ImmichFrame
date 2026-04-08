@@ -1,6 +1,7 @@
 <script lang="ts">
 	import * as api from '$lib/index';
-	import { format, isValid } from 'date-fns';
+	import { isValid } from 'date-fns';
+	import { formatInTimeZone } from 'date-fns-tz';
 	import { configStore } from '$lib/stores/config.store';
 	import { clientIdentifierStore } from '$lib/stores/persist.store';
 	import {
@@ -15,56 +16,11 @@
 		return $configStore.calendarTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 	}
 
-	function getZonedFormatter(timeZone: string) {
-		return new Intl.DateTimeFormat('en-CA', {
-			timeZone,
-			year: 'numeric',
-			month: '2-digit',
-			day: '2-digit',
-			hour: '2-digit',
-			minute: '2-digit',
-			second: '2-digit',
-			hourCycle: 'h23'
-		});
-	}
-
-	function getZonedDisplayDate(date: Date, timeZone: string) {
-		const parts = getZonedFormatter(timeZone).formatToParts(date);
-
-		const getPart = (type: Intl.DateTimeFormatPartTypes) =>
-			Number.parseInt(parts.find((part) => part.type === type)?.value ?? '', 10);
-
-		const year = getPart('year');
-		const month = getPart('month');
-		const day = getPart('day');
-		const hour = getPart('hour');
-		const minute = getPart('minute');
-		const second = getPart('second');
-
-		if (
-			!Number.isFinite(year) ||
-			!Number.isFinite(month) ||
-			!Number.isFinite(day) ||
-			!Number.isFinite(hour) ||
-			!Number.isFinite(minute) ||
-			!Number.isFinite(second)
-		) {
-			return null;
-		}
-
-		return new Date(year, month - 1, day, hour, minute, second);
-	}
-
 	function formatInCalendarTimeZone(date: Date, formatString: string, timeZone: string) {
-		const zonedDisplayDate = getZonedDisplayDate(date, timeZone);
-		if (!zonedDisplayDate) {
-			return '';
-		}
-
 		try {
-			return format(zonedDisplayDate, formatString);
+			return formatInTimeZone(date, timeZone, formatString);
 		} catch {
-			return format(zonedDisplayDate, 'yyyy-MM-dd HH:mm');
+			return '';
 		}
 	}
 

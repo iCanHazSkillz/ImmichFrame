@@ -59,6 +59,10 @@
 		kind?: FrameFailureKind;
 	}
 
+	interface AssetLoadError extends FrameRequestError {
+		assetUrlToRevoke?: string;
+	}
+
 	api.init();
 
 	const PRELOAD_ASSETS = 5;
@@ -188,6 +192,19 @@
 			typeof (error as { kind?: unknown }).kind === 'string'
 		) {
 			return (error as { kind: FrameFailureKind }).kind;
+		}
+
+		return undefined;
+	}
+
+	function getAssetUrlToRevoke(error: unknown): string | undefined {
+		if (
+			typeof error === 'object' &&
+			error != null &&
+			'assetUrlToRevoke' in error &&
+			typeof (error as { assetUrlToRevoke?: unknown }).assetUrlToRevoke === 'string'
+		) {
+			return (error as { assetUrlToRevoke: string }).assetUrlToRevoke;
 		}
 
 		return undefined;
@@ -453,6 +470,11 @@
 	function ensureAssetPromise(asset: api.AssetResponseDto) {
 		if (!(asset.id in assetPromisesDict)) {
 			assetPromisesDict[asset.id] = loadAsset(asset).catch((err) => {
+				const assetUrlToRevoke = getAssetUrlToRevoke(err);
+				if (assetUrlToRevoke) {
+					revokeObjectUrl(assetUrlToRevoke);
+				}
+
 				delete assetPromisesDict[asset.id];
 				throw err;
 			});
@@ -825,66 +847,74 @@
 	}
 
 	async function loadAsset(assetResponse: api.AssetResponseDto) {
-		let assetUrl: string;
+		let assetUrl: string | undefined;
 
-		if (isVideoAsset(assetResponse)) {
-			assetUrl = api.getAssetStreamUrl(
-				assetResponse.id,
-				$clientIdentifierStore,
-				assetResponse.type
-			);
-		} else {
-			const req = await api.getAsset(assetResponse.id, {
-				clientIdentifier: $clientIdentifierStore,
-				assetType: assetResponse.type
-			});
-			if (req.status != 200) {
-				const failureKind =
-					req.status === 406 ? 'retryable' : statusToFailureKind(req.status);
-
-				throw createFrameRequestError(
-					failureKind,
-					`Failed to load asset ${assetResponse.id}: status ${req.status}`,
-					req.status
+		try {
+			if (isVideoAsset(assetResponse)) {
+				assetUrl = api.getAssetStreamUrl(
+					assetResponse.id,
+					$clientIdentifierStore,
+					assetResponse.type
 				);
-			}
-			assetUrl = getObjectUrl(req.data);
-		}
+			} else {
+				const req = await api.getAsset(assetResponse.id, {
+					clientIdentifier: $clientIdentifierStore,
+					assetType: assetResponse.type
+				});
+				if (req.status != 200) {
+					const failureKind =
+						req.status === 406 ? 'retryable' : statusToFailureKind(req.status);
 
-		let album: api.AlbumResponseDto[] | null = null;
-		if ($configStore.showAlbumName) {
-			const albumReq = await api.getAlbumInfo(assetResponse.id, {
-				clientIdentifier: $clientIdentifierStore
-			});
-			if (albumReq.status !== 200) {
-				throw createFrameRequestError(
-					statusToFailureKind(albumReq.status),
-					`Failed to load album info for asset ${assetResponse.id}: status ${albumReq.status}`,
-					albumReq.status
-				);
+					throw createFrameRequestError(
+						failureKind,
+						`Failed to load asset ${assetResponse.id}: status ${req.status}`,
+						req.status
+					);
+				}
+				assetUrl = getObjectUrl(req.data);
 			}
-			album = albumReq.data ?? [];
-		}
 
-		if ($configStore.showPeopleDesc && (assetResponse.people ?? []).length == 0) {
-			const assetInfoRequest = await api.getAssetInfo(assetResponse.id, {
-				clientIdentifier: $clientIdentifierStore
-			});
-			if (assetInfoRequest.status !== 200) {
-				throw createFrameRequestError(
-					statusToFailureKind(assetInfoRequest.status),
-					`Failed to load asset info for asset ${assetResponse.id}: status ${assetInfoRequest.status}`,
-					assetInfoRequest.status
-				);
+			let album: api.AlbumResponseDto[] | null = null;
+			if ($configStore.showAlbumName) {
+				const albumReq = await api.getAlbumInfo(assetResponse.id, {
+					clientIdentifier: $clientIdentifierStore
+				});
+				if (albumReq.status !== 200) {
+					throw createFrameRequestError(
+						statusToFailureKind(albumReq.status),
+						`Failed to load album info for asset ${assetResponse.id}: status ${albumReq.status}`,
+						albumReq.status
+					);
+				}
+				album = albumReq.data ?? [];
 			}
-			assetResponse.people = assetInfoRequest.data.people;
-		}
 
-		return [assetUrl, assetResponse, album] as [
-			string,
-			api.AssetResponseDto,
-			api.AlbumResponseDto[]
-		];
+			if ($configStore.showPeopleDesc && (assetResponse.people ?? []).length == 0) {
+				const assetInfoRequest = await api.getAssetInfo(assetResponse.id, {
+					clientIdentifier: $clientIdentifierStore
+				});
+				if (assetInfoRequest.status !== 200) {
+					throw createFrameRequestError(
+						statusToFailureKind(assetInfoRequest.status),
+						`Failed to load asset info for asset ${assetResponse.id}: status ${assetInfoRequest.status}`,
+						assetInfoRequest.status
+					);
+				}
+				assetResponse.people = assetInfoRequest.data.people;
+			}
+
+			return [assetUrl, assetResponse, album] as [
+				string,
+				api.AssetResponseDto,
+				api.AlbumResponseDto[]
+			];
+		} catch (error) {
+			if (assetUrl?.startsWith('blob:')) {
+				(error as AssetLoadError).assetUrlToRevoke = assetUrl;
+			}
+
+			throw error;
+		}
 	}
 
 	function getObjectUrl(image: Blob) {

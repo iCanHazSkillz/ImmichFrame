@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using Ical.Net;
+using Ical.Net.DataTypes;
 using ImmichFrame.Core.Helpers;
 using ImmichFrame.Core.Interfaces;
 using ImmichFrame.WebApi.Helpers;
@@ -32,6 +33,8 @@ public class IcalCalendarService : ICalendarService
         {
             var appointments = new List<IAppointment>();
             var (windowStart, windowEnd) = GetTodayWindow(calendarTimeZone);
+            var windowStartCalDateTime = new CalDateTime(windowStart, calendarTimeZone.Id);
+            var windowEndCalDateTime = new CalDateTime(windowEnd, calendarTimeZone.Id);
 
             List<(string? auth, string url)> cals = settings.Webcalendars.Select<string, (string? auth, string url)?>(x =>
             {
@@ -67,7 +70,7 @@ public class IcalCalendarService : ICalendarService
 
                 appointments.AddRange(
                     calendar
-                        .GetOccurrences(windowStart, windowEnd)
+                        .GetOccurrences(windowStartCalDateTime, windowEndCalDateTime)
                         .Select(occurrence => occurrence.ToAppointment(calendarTimeZone)));
             }
 

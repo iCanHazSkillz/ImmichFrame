@@ -42,13 +42,28 @@ public class AdminSettingsController : ControllerBase
             snapshot.CustomCss,
             !string.IsNullOrWhiteSpace(snapshot.Settings.GeneralSettings.WeatherApiKey),
             TimeZoneSettingsHelper.ResolveServerTimeZoneId(),
-            TimeZoneInfo.GetSystemTimeZones().Select(timeZone => timeZone.Id).ToList()));
+            TimeZoneSettingsHelper.GetAvailableTimeZoneIds().ToList()));
     }
 
     [HttpPut]
     public ActionResult<AdminSettingsResponseDto> Update([FromBody] AdminSettingsUpdateRequest request)
     {
         request ??= new AdminSettingsUpdateRequest();
+
+        if (!TimeZoneSettingsHelper.TryResolveCalendarTimeZoneId(
+                request.General.CalendarTimeZone,
+                out var resolvedCalendarTimeZoneId))
+        {
+            ModelState.AddModelError(
+                nameof(request.General.CalendarTimeZone),
+                "Calendar timezone must be a valid timezone identifier.");
+            return ValidationProblem(ModelState);
+        }
+
+        request.General.CalendarTimeZone = string.IsNullOrWhiteSpace(request.General.CalendarTimeZone)
+            ? null
+            : resolvedCalendarTimeZoneId;
+
         var document = request.ToDocument();
 
         if (document.General.ShowCalendar && (document.General.Webcalendars == null || document.General.Webcalendars.Count == 0))
@@ -95,6 +110,6 @@ public class AdminSettingsController : ControllerBase
             snapshot.CustomCss,
             !string.IsNullOrWhiteSpace(snapshot.Settings.GeneralSettings.WeatherApiKey),
             TimeZoneSettingsHelper.ResolveServerTimeZoneId(),
-            TimeZoneInfo.GetSystemTimeZones().Select(timeZone => timeZone.Id).ToList()));
+            TimeZoneSettingsHelper.GetAvailableTimeZoneIds().ToList()));
     }
 }

@@ -263,7 +263,8 @@ namespace ImmichFrame.WebApi.Controllers
             {
                 HttpRequestException => true,
                 TimeoutException => true,
-                TaskCanceledException => true,
+                TaskCanceledException taskCanceledException
+                    when taskCanceledException.InnerException is TimeoutException => true,
                 ApiException apiException when apiException.StatusCode is 408 or 429 or >= 500 => true,
                 _ => false
             };

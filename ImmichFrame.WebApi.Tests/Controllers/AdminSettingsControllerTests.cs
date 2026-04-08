@@ -716,6 +716,46 @@ public class AdminSettingsControllerTests
     }
 
     [Test]
+    public async Task Update_NormalizesWindowsCalendarTimeZoneToCanonicalIana()
+    {
+        var adminClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var updateRequest = CreateValidUpdateRequest(string.Empty);
+        updateRequest.General.CalendarTimeZone = "Eastern Standard Time";
+
+        var response = await adminClient.PutAsJsonAsync("/api/admin/settings", updateRequest);
+        response.EnsureSuccessStatusCode();
+
+        var updatedSettings = await response.Content.ReadFromJsonAsync<AdminSettingsResponseDto>();
+        Assert.That(updatedSettings, Is.Not.Null);
+        Assert.That(updatedSettings!.General.CalendarTimeZone, Is.EqualTo("America/New_York"));
+
+        var persistedJson = await File.ReadAllTextAsync(Path.Combine(_tempAppDataPath, "admin-settings.json"));
+        Assert.That(persistedJson, Does.Contain("America/New_York"));
+    }
+
+    [Test]
+    public async Task Update_ReturnsBadRequest_WhenCalendarTimeZoneIsInvalid()
+    {
+        var adminClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var updateRequest = CreateValidUpdateRequest(string.Empty);
+        updateRequest.General.CalendarTimeZone = "Definitely/Not-A-TimeZone";
+
+        var response = await adminClient.PutAsJsonAsync("/api/admin/settings", updateRequest);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+    }
+
+    [Test]
     public async Task Update_ReturnsBadRequest_WhenWeatherEnabledWithoutAnyConfiguredKey()
     {
         using var factory = new WebApplicationFactory<Program>()

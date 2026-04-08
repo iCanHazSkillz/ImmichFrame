@@ -30,8 +30,17 @@ public class AdminManagedSecretsStore(AdminManagedSecretsStoreOptions options) :
         }
 
         var json = File.ReadAllText(path);
-        var secrets = JsonSerializer.Deserialize<AdminManagedSecretsDocument>(json, _serializerOptions)
-            ?? new AdminManagedSecretsDocument();
+        AdminManagedSecretsDocument secrets;
+        try
+        {
+            secrets = JsonSerializer.Deserialize<AdminManagedSecretsDocument>(json, _serializerOptions)
+                ?? new AdminManagedSecretsDocument();
+        }
+        catch (JsonException)
+        {
+            return new AdminManagedSecretsDocument();
+        }
+
         secrets.Normalize();
         return secrets;
     }
