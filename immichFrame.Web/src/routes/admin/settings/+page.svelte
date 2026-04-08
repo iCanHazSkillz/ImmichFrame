@@ -232,6 +232,13 @@
 		}
 	] as const;
 
+	type RequiredGeneralIntField =
+		| 'interval'
+		| 'renewImagesDuration'
+		| 'refreshAlbumPeopleInterval';
+	type RequiredGeneralFloatField = 'transitionDuration';
+	type RequiredGeneralNumberField = RequiredGeneralIntField | RequiredGeneralFloatField;
+
 	let adminSession: AdminAuthSessionDto | null = $state(null);
 	let authLoading = $state(true);
 	let pageLoading = $state(false);
@@ -245,6 +252,7 @@
 	let showWeatherApiKey = $state(false);
 	let weatherApiKeyFieldError = $state('');
 	let webcalendarsFieldError = $state('');
+	let pendingGeneralNumberInputs = $state<Partial<Record<RequiredGeneralNumberField, string>>>({});
 
 	const serializedDraft = $derived(draft ? serializeEditableSettings(draft) : '');
 	const trimmedWeatherApiKeyInput = $derived(weatherApiKeyInput.trim());
@@ -305,6 +313,7 @@
 		showWeatherApiKey = false;
 		weatherApiKeyFieldError = '';
 		webcalendarsFieldError = '';
+		pendingGeneralNumberInputs = {};
 	}
 
 	function formatDateInput(value?: string | null) {
@@ -339,6 +348,104 @@
 		}
 
 		return Math.max(min, parsed);
+	}
+
+	function getRequiredGeneralNumberValue(key: RequiredGeneralNumberField) {
+		if (!draft) {
+			return '';
+		}
+
+		return pendingGeneralNumberInputs[key] ?? String(draft.general[key]);
+	}
+
+	function setPendingGeneralNumberInput(key: RequiredGeneralNumberField, value: string) {
+		pendingGeneralNumberInputs = {
+			...pendingGeneralNumberInputs,
+			[key]: value
+		};
+		saveErrorMessage = '';
+	}
+
+	function clearPendingGeneralNumberInput(key: RequiredGeneralNumberField) {
+		const nextInputs = { ...pendingGeneralNumberInputs };
+		delete nextInputs[key];
+		pendingGeneralNumberInputs = nextInputs;
+	}
+
+	function updateRequiredGeneralIntInput(
+		key: RequiredGeneralIntField,
+		value: string,
+		min = 0
+	) {
+		setPendingGeneralNumberInput(key, value);
+		const normalized = value.trim();
+		if (!normalized.length) {
+			return;
+		}
+
+		const parsed = Number.parseInt(normalized, 10);
+		if (!Number.isFinite(parsed)) {
+			return;
+		}
+
+		updateGeneral(key, Math.max(min, parsed));
+	}
+
+	function updateRequiredGeneralFloatInput(
+		key: RequiredGeneralFloatField,
+		value: string,
+		min = 0
+	) {
+		setPendingGeneralNumberInput(key, value);
+		const normalized = value.trim();
+		if (!normalized.length) {
+			return;
+		}
+
+		const parsed = Number.parseFloat(normalized);
+		if (!Number.isFinite(parsed)) {
+			return;
+		}
+
+		updateGeneral(key, Math.max(min, parsed));
+	}
+
+	function commitRequiredGeneralIntInput(
+		key: RequiredGeneralIntField,
+		fallback: number,
+		min = 0
+	) {
+		if (!draft) {
+			return;
+		}
+
+		const pendingValue = pendingGeneralNumberInputs[key];
+		if (pendingValue == null) {
+			return;
+		}
+
+		const nextValue = parseRequiredInt(pendingValue, fallback, min);
+		updateGeneral(key, nextValue);
+		clearPendingGeneralNumberInput(key);
+	}
+
+	function commitRequiredGeneralFloatInput(
+		key: RequiredGeneralFloatField,
+		fallback: number,
+		min = 0
+	) {
+		if (!draft) {
+			return;
+		}
+
+		const pendingValue = pendingGeneralNumberInputs[key];
+		if (pendingValue == null) {
+			return;
+		}
+
+		const nextValue = parseRequiredFloat(pendingValue, fallback, min);
+		updateGeneral(key, nextValue);
+		clearPendingGeneralNumberInput(key);
 	}
 
 	function isUuid(value: string) {
@@ -806,12 +913,14 @@
 									class={inputClass}
 									type="number"
 									min="1"
-									value={draft.general.interval}
+									value={getRequiredGeneralNumberValue('interval')}
 									oninput={(event) =>
-										updateGeneral(
+										updateRequiredGeneralIntInput(
 											'interval',
-											parseRequiredInt((event.currentTarget as HTMLInputElement).value, 45, 1)
+											(event.currentTarget as HTMLInputElement).value,
+											1
 										)}
+									onblur={() => commitRequiredGeneralIntInput('interval', 45, 1)}
 								/>
 							</div>
 
@@ -830,16 +939,14 @@
 									type="number"
 									min="0"
 									step="0.1"
-									value={draft.general.transitionDuration}
+									value={getRequiredGeneralNumberValue('transitionDuration')}
 									oninput={(event) =>
-										updateGeneral(
+										updateRequiredGeneralFloatInput(
 											'transitionDuration',
-											parseRequiredFloat(
-												(event.currentTarget as HTMLInputElement).value,
-												2,
-												0
-											)
+											(event.currentTarget as HTMLInputElement).value,
+											0
 										)}
+									onblur={() => commitRequiredGeneralFloatInput('transitionDuration', 2, 0)}
 								/>
 							</div>
 
@@ -2077,12 +2184,14 @@
 									class={inputClass}
 									type="number"
 									min="0"
-									value={draft.general.renewImagesDuration}
+									value={getRequiredGeneralNumberValue('renewImagesDuration')}
 									oninput={(event) =>
-										updateGeneral(
+										updateRequiredGeneralIntInput(
 											'renewImagesDuration',
-											parseRequiredInt((event.currentTarget as HTMLInputElement).value, 30, 0)
+											(event.currentTarget as HTMLInputElement).value,
+											0
 										)}
+									onblur={() => commitRequiredGeneralIntInput('renewImagesDuration', 30, 0)}
 								/>
 							</div>
 
@@ -2100,16 +2209,15 @@
 									class={inputClass}
 									type="number"
 									min="0"
-									value={draft.general.refreshAlbumPeopleInterval}
+									value={getRequiredGeneralNumberValue('refreshAlbumPeopleInterval')}
 									oninput={(event) =>
-										updateGeneral(
+										updateRequiredGeneralIntInput(
 											'refreshAlbumPeopleInterval',
-											parseRequiredInt(
-												(event.currentTarget as HTMLInputElement).value,
-												12,
-												0
-											)
+											(event.currentTarget as HTMLInputElement).value,
+											0
 										)}
+									onblur={() =>
+										commitRequiredGeneralIntInput('refreshAlbumPeopleInterval', 12, 0)}
 								/>
 							</div>
 						</div>
