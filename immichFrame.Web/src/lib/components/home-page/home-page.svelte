@@ -51,12 +51,25 @@
 		assets: api.AssetResponseDto[];
 	}
 
+	type FrameConnectivityState = 'loading' | 'ready' | 'reconnecting' | 'auth_error' | 'fatal_error';
+	type FrameFailureKind = 'retryable' | 'auth' | 'fatal';
+
+	interface FrameRequestError extends Error {
+		status?: number;
+		kind?: FrameFailureKind;
+	}
+
+	interface AssetLoadError extends FrameRequestError {
+		assetUrlToRevoke?: string;
+	}
+
 	api.init();
 
 	const PRELOAD_ASSETS = 5;
 	const HEARTBEAT_INTERVAL_MS = 10_000;
 	const COMMAND_POLL_INTERVAL_MS = 2_000;
 	const MAX_DISPLAY_HISTORY = 50;
+	const RECONNECT_PROBE_INTERVAL_MS = 1_500;
 
 	let assetHistory: api.AssetResponseDto[] = [];
 	let assetBacklog: api.AssetResponseDto[] = [];
@@ -76,10 +89,10 @@
 	let currentDuration: number = $state($configStore.interval ?? 20);
 	let userPaused: boolean = $state(false);
 
-	let error: boolean = $state(false);
 	let infoVisible: boolean = $state(false);
-	let authError: boolean = $state(false);
-	let errorMessage: string = $state('');
+	let connectivityState: FrameConnectivityState = $state('loading');
+	let reconnectMessage: string = $state('Reconnecting to Immich... retrying automatically.');
+	let fatalErrorMessage: string = $state('');
 	let assetsState: AssetsState = $state({
 		assets: [],
 		error: false,
@@ -106,10 +119,13 @@
 	let pendingSyncStatus: 'Active' | 'Stopped' | null = null;
 	let pendingDisplayNameSync = $state(false);
 	let overlayPausedPlayback = $state(false);
+	let reconnectPausedPlayback = $state(false);
 	let lastAppliedClientIdentifierFromUrl: string | null | undefined = $state(undefined);
 	let lastAppliedClientNameFromUrl: string | null | undefined = $state(undefined);
 	let lastAppliedAuthSecretFromUrl: string | null | undefined = $state(undefined);
 	let handledCommandIds = new Set<number>();
+	let reconnectTimeoutId: number | undefined;
+	let isReconnectProbeInFlight = false;
 	const widgetStackOrder = $derived(
 		normalizeWidgetStackOrder($configStore.widgetStackOrder)
 	);
@@ -142,6 +158,121 @@
 
 	function renderWidgetInCorner(widget: WidgetKey, corner: WidgetPosition) {
 		return getWidgetPosition(widget) === corner;
+	}
+
+	function createFrameRequestError(
+		kind: FrameFailureKind,
+		message: string,
+		status?: number
+	): FrameRequestError {
+		const error = new Error(message) as FrameRequestError;
+		error.kind = kind;
+		error.status = status;
+		return error;
+	}
+
+	function getErrorStatus(error: unknown): number | undefined {
+		if (
+			typeof error === 'object' &&
+			error != null &&
+			'status' in error &&
+			typeof (error as { status?: unknown }).status === 'number'
+		) {
+			return (error as { status: number }).status;
+		}
+
+		return undefined;
+	}
+
+	function getErrorKind(error: unknown): FrameFailureKind | undefined {
+		if (
+			typeof error === 'object' &&
+			error != null &&
+			'kind' in error &&
+			typeof (error as { kind?: unknown }).kind === 'string'
+		) {
+			return (error as { kind: FrameFailureKind }).kind;
+		}
+
+		return undefined;
+	}
+
+	function getAssetUrlToRevoke(error: unknown): string | undefined {
+		if (
+			typeof error === 'object' &&
+			error != null &&
+			'assetUrlToRevoke' in error &&
+			typeof (error as { assetUrlToRevoke?: unknown }).assetUrlToRevoke === 'string'
+		) {
+			return (error as { assetUrlToRevoke: string }).assetUrlToRevoke;
+		}
+
+		return undefined;
+	}
+
+	function statusToFailureKind(status: number): FrameFailureKind {
+		if (status === 401 || status === 403) {
+			return 'auth';
+		}
+
+		if ([408, 425, 429].includes(status) || status >= 500) {
+			return 'retryable';
+		}
+
+		return 'fatal';
+	}
+
+	function classifyFrameFailure(error: unknown): { kind: FrameFailureKind; message: string } {
+		const explicitKind = getErrorKind(error);
+		if (explicitKind) {
+			return {
+				kind: explicitKind,
+				message:
+					error instanceof Error && error.message
+						? error.message
+						: explicitKind === 'auth'
+							? 'Could not authenticate client'
+							: explicitKind === 'fatal'
+								? 'Failed to load assets from Immich.'
+								: 'Reconnecting to Immich... retrying automatically.'
+			};
+		}
+
+		const status = getErrorStatus(error);
+		if (status != null) {
+			if (statusToFailureKind(status) === 'auth') {
+				return { kind: 'auth', message: 'Could not authenticate client' };
+			}
+
+			if (statusToFailureKind(status) === 'retryable') {
+				return {
+					kind: 'retryable',
+					message: 'Reconnecting to Immich... retrying automatically.'
+				};
+			}
+
+			return {
+				kind: 'fatal',
+				message: 'Looks like your immich-server is offline or you misconfigured immichFrame, check the container logs'
+			};
+		}
+
+		return {
+			kind: 'retryable',
+			message: 'Reconnecting to Immich... retrying automatically.'
+		};
+	}
+
+	function hasDisplayedAsset() {
+		return displayingAssets.length > 0 && assetsState.loaded && assetsState.assets.length > 0;
+	}
+
+	function clearReconnectRetry() {
+		if (reconnectTimeoutId != null) {
+			clearTimeout(reconnectTimeoutId);
+			reconnectTimeoutId = undefined;
+		}
+		isReconnectProbeInFlight = false;
 	}
 
 	$effect(() => {
@@ -336,25 +467,55 @@
 		}
 	}
 
-	async function updateAssetPromises() {
-		for (let asset of displayingAssets) {
-			if (!(asset.id in assetPromisesDict)) {
-				assetPromisesDict[asset.id] = loadAsset(asset);
+	function ensureAssetPromise(asset: api.AssetResponseDto) {
+		if (!(asset.id in assetPromisesDict)) {
+			assetPromisesDict[asset.id] = loadAsset(asset).catch((err) => {
+				const assetUrlToRevoke = getAssetUrlToRevoke(err);
+				if (assetUrlToRevoke) {
+					revokeObjectUrl(assetUrlToRevoke);
+				}
+
+				delete assetPromisesDict[asset.id];
+				throw err;
+			});
+		}
+
+		return assetPromisesDict[asset.id];
+	}
+
+	function primeAssetPromises(assets: api.AssetResponseDto[]) {
+		for (const asset of assets) {
+			ensureAssetPromise(asset);
+		}
+	}
+
+	async function updateAssetPromises(
+		currentAssets: api.AssetResponseDto[] = displayingAssets,
+		backlogAssets: api.AssetResponseDto[] = assetBacklog
+	) {
+		for (let asset of currentAssets) {
+			ensureAssetPromise(asset);
+		}
+
+		if (connectivityState !== 'reconnecting') {
+			for (let i = 0; i < PRELOAD_ASSETS; i++) {
+				if (i >= backlogAssets.length) {
+					break;
+				}
+
+				void ensureAssetPromise(backlogAssets[i]).catch(() => undefined);
 			}
 		}
-		for (let i = 0; i < PRELOAD_ASSETS; i++) {
-			if (i >= assetBacklog.length) {
-				break;
-			}
-			if (!(assetBacklog[i].id in assetPromisesDict)) {
-				assetPromisesDict[assetBacklog[i].id] = loadAsset(assetBacklog[i]);
-			}
-		}
+
+		const retainedAssetIds = new Set([
+			...currentAssets.map((item) => item.id),
+			...backlogAssets.map((item) => item.id)
+		]);
+
 		const keysToRemove = Object.keys(assetPromisesDict).filter(
-			(key) =>
-				!displayingAssets.find((item) => item.id === key) &&
-				!assetBacklog.find((item) => item.id === key)
+			(key) => !retainedAssetIds.has(key)
 		);
+
 		for (const key of keysToRemove) {
 			try {
 				const [url] = await assetPromisesDict[key];
@@ -372,39 +533,119 @@
 			return;
 		}
 
-		try {
-			let assetRequest = await api.getAssets();
+		const assetRequest = await api.getAssets();
 
-			if (assetRequest.status != 200) {
-				if (assetRequest.status == 401) {
-					authError = true;
-				}
-				error = true;
-				return;
-			}
-
-			error = false;
-			assetBacklog = assetRequest.data.filter(
-				(asset) => isImageAsset(asset) || isVideoAsset(asset)
+		if (assetRequest.status !== 200) {
+			throw createFrameRequestError(
+				statusToFailureKind(assetRequest.status),
+				`Failed to load asset list: status ${assetRequest.status}`,
+				assetRequest.status
 			);
-		} catch {
-			error = true;
 		}
+
+		assetBacklog = assetRequest.data.filter((asset) => isImageAsset(asset) || isVideoAsset(asset));
+	}
+
+	async function pauseForReconnect() {
+		if (reconnectPausedPlayback || adminStopped || !hasDisplayedAsset()) {
+			return;
+		}
+
+		if (progressBarStatus !== ProgressBarStatus.Paused) {
+			reconnectPausedPlayback = true;
+			pauseCurrentDisplayClock();
+			await assetComponent?.pause?.();
+			await progressBar.pause();
+			await syncFrameSession();
+		}
+	}
+
+	async function scheduleReconnectRetry() {
+		if (adminStopped || reconnectTimeoutId != null) {
+			return;
+		}
+
+		reconnectTimeoutId = window.setTimeout(() => {
+			reconnectTimeoutId = undefined;
+			void retryAssetRecovery();
+		}, RECONNECT_PROBE_INTERVAL_MS);
+	}
+
+	async function handleAssetPipelineFailure(error: unknown) {
+		const failure = classifyFrameFailure(error);
+
+		if (failure.kind === 'auth') {
+			clearReconnectRetry();
+			reconnectPausedPlayback = false;
+			connectivityState = 'auth_error';
+			fatalErrorMessage = failure.message;
+			return false;
+		}
+
+		if (failure.kind === 'fatal') {
+			clearReconnectRetry();
+			reconnectPausedPlayback = false;
+			connectivityState = 'fatal_error';
+			fatalErrorMessage = failure.message;
+			return false;
+		}
+
+		reconnectMessage = failure.message;
+		connectivityState = 'reconnecting';
+		await pauseForReconnect();
+		await scheduleReconnectRetry();
+		return false;
+	}
+
+	async function retryAssetRecovery() {
+		if (
+			adminStopped ||
+			connectivityState === 'auth_error' ||
+			connectivityState === 'fatal_error' ||
+			isHandlingAssetTransition ||
+			isReconnectProbeInFlight
+		) {
+			return;
+		}
+
+		isReconnectProbeInFlight = true;
+		try {
+			await loadAssets();
+		} catch (error) {
+			await handleAssetPipelineFailure(error);
+			return;
+		} finally {
+			isReconnectProbeInFlight = false;
+		}
+
+		const recovered = await getNextAssets();
+		if (!recovered || !displayingAssets.length || adminStopped) {
+			return;
+		}
+
+		await tick();
+		reconnectPausedPlayback = false;
+		await progressBar?.restart?.(false);
+		await assetComponent?.play?.();
+		void progressBar?.play?.();
+		await syncFrameSession();
 	}
 
 	let isHandlingAssetTransition = false;
 	const handleDone = async (previous: boolean = false, instant: boolean = false) => {
-		if (isHandlingAssetTransition || adminStopped) {
+		if (isHandlingAssetTransition || adminStopped || connectivityState === 'reconnecting') {
 			return;
 		}
 		isHandlingAssetTransition = true;
 		try {
 			userPaused = false;
-			progressBar.restart(false);
 			$instantTransition = instant;
-			if (previous) await getPreviousAssets();
-			else await getNextAssets();
+			const transitioned = previous ? await getPreviousAssets() : await getNextAssets();
+			if (!transitioned) {
+				return;
+			}
 			await tick();
+			await progressBar.restart(false);
 			await assetComponent?.play?.();
 			void progressBar.play();
 			await syncFrameSession();
@@ -413,20 +654,56 @@
 		}
 	};
 
+	async function markAssetsReady() {
+		clearReconnectRetry();
+		connectivityState = 'ready';
+		fatalErrorMessage = '';
+	}
+
+	async function prepareAssetsState(assets: api.AssetResponseDto[]) {
+		updateCurrentDuration(assets);
+		primeAssetPromises(assets);
+
+		const newAssets: [string, api.AssetResponseDto, api.AlbumResponseDto[]][] = [];
+		for (const asset of assets) {
+			newAssets.push(await ensureAssetPromise(asset));
+		}
+
+		return {
+			assets: newAssets,
+			error: false,
+			loaded: true,
+			split: assets.length === 2 && assets.every(isImageAsset),
+			hasBday: hasBirthday(assets)
+		} satisfies AssetsState;
+	}
+
 	async function getNextAssets() {
+		try {
+			await getNextAssetsCore();
+			await markAssetsReady();
+			return true;
+		} catch (error) {
+			return await handleAssetPipelineFailure(error);
+		}
+	}
+
+	async function getNextAssetsCore() {
 		if (!assetBacklog.length) {
 			await loadAssets();
 		}
 
-		if (!error && !assetBacklog.length) {
-			error = true;
-			errorMessage = 'No assets were found! Check your configuration.';
-			return;
+		if (!assetBacklog.length) {
+			throw createFrameRequestError(
+				'fatal',
+				'No assets were found! Check your configuration.'
+			);
 		}
 
 		const useSplit = shouldUseSplitView(assetBacklog);
-		const next = assetBacklog.splice(0, useSplit ? 2 : 1);
-		assetBacklog = [...assetBacklog];
+		const next = assetBacklog.slice(0, useSplit ? 2 : 1);
+		const nextAssetsState = await prepareAssetsState(next);
+		const nextBacklog = assetBacklog.slice(next.length);
 
 		if (displayingAssets.length) {
 			assetHistory.push(...displayingAssets);
@@ -437,14 +714,25 @@
 			assetHistory = assetHistory.slice(-250);
 		}
 
+		assetBacklog = nextBacklog;
 		displayingAssets = next;
 		setCurrentDisplay(next);
-		await updateAssetPromises();
-		assetsState = await pickAssets(next);
+		assetsState = nextAssetsState;
 		currentDisplayDurationSeconds = currentDuration;
+		await updateAssetPromises();
 	}
 
 	async function getPreviousAssets() {
+		try {
+			await getPreviousAssetsCore();
+			await markAssetsReady();
+			return true;
+		} catch (error) {
+			return await handleAssetPipelineFailure(error);
+		}
+	}
+
+	async function getPreviousAssetsCore() {
 		if (!assetHistory.length) {
 			if (displayingAssets.length) {
 				setCurrentDisplay(displayingAssets);
@@ -454,19 +742,24 @@
 		}
 
 		const useSplit = shouldUseSplitView(assetHistory.slice(-2));
-		const next = assetHistory.splice(useSplit ? -2 : -1);
-		assetHistory = [...assetHistory];
+		const next = assetHistory.slice(useSplit ? -2 : -1);
+		const nextAssetsState = await prepareAssetsState(next);
+		const nextHistory = assetHistory.slice(0, useSplit ? -2 : -1);
 
 		if (displayingAssets.length) {
-			assetBacklog.unshift(...displayingAssets);
 			archiveCurrentDisplay();
+		}
+
+		assetHistory = nextHistory;
+		if (displayingAssets.length) {
+			assetBacklog = [...displayingAssets, ...assetBacklog];
 		}
 
 		displayingAssets = next;
 		setCurrentDisplay(next);
-		await updateAssetPromises();
-		assetsState = await pickAssets(next);
+		assetsState = nextAssetsState;
 		currentDisplayDurationSeconds = currentDuration;
+		await updateAssetPromises();
 	}
 
 	function isPortrait(asset: api.AssetResponseDto) {
@@ -553,73 +846,75 @@
 		return total;
 	}
 
-	async function pickAssets(assets: api.AssetResponseDto[]) {
-		let newAssets = [];
-		try {
-			updateCurrentDuration(assets);
-			for (let asset of assets) {
-				let img = await assetPromisesDict[asset.id];
-				newAssets.push(img);
-			}
-			return {
-				assets: newAssets,
-				error: false,
-				loaded: true,
-				split: assets.length == 2 && assets.every(isImageAsset),
-				hasBday: hasBirthday(assets)
-			};
-		} catch {
-			updateCurrentDuration([]);
-			return {
-				assets: [],
-				error: true,
-				loaded: false,
-				split: false,
-				hasBday: false
-			};
-		}
-	}
-
 	async function loadAsset(assetResponse: api.AssetResponseDto) {
-		let assetUrl: string;
+		let assetUrl: string | undefined;
 
-		if (isVideoAsset(assetResponse)) {
-			assetUrl = api.getAssetStreamUrl(
-				assetResponse.id,
-				$clientIdentifierStore,
-				assetResponse.type
-			);
-		} else {
-			const req = await api.getAsset(assetResponse.id, {
-				clientIdentifier: $clientIdentifierStore,
-				assetType: assetResponse.type
-			});
-			if (req.status != 200) {
-				throw new Error(`Failed to load asset ${assetResponse.id}: status ${req.status}`);
+		try {
+			if (isVideoAsset(assetResponse)) {
+				assetUrl = api.getAssetStreamUrl(
+					assetResponse.id,
+					$clientIdentifierStore,
+					assetResponse.type
+				);
+			} else {
+				const req = await api.getAsset(assetResponse.id, {
+					clientIdentifier: $clientIdentifierStore,
+					assetType: assetResponse.type
+				});
+				if (req.status != 200) {
+					const failureKind =
+						req.status === 406 ? 'retryable' : statusToFailureKind(req.status);
+
+					throw createFrameRequestError(
+						failureKind,
+						`Failed to load asset ${assetResponse.id}: status ${req.status}`,
+						req.status
+					);
+				}
+				assetUrl = getObjectUrl(req.data);
 			}
-			assetUrl = getObjectUrl(req.data);
-		}
 
-		let album: api.AlbumResponseDto[] | null = null;
-		if ($configStore.showAlbumName) {
-			const albumReq = await api.getAlbumInfo(assetResponse.id, {
-				clientIdentifier: $clientIdentifierStore
-			});
-			album = albumReq.data ?? [];
-		}
+			let album: api.AlbumResponseDto[] | null = null;
+			if ($configStore.showAlbumName) {
+				const albumReq = await api.getAlbumInfo(assetResponse.id, {
+					clientIdentifier: $clientIdentifierStore
+				});
+				if (albumReq.status !== 200) {
+					throw createFrameRequestError(
+						statusToFailureKind(albumReq.status),
+						`Failed to load album info for asset ${assetResponse.id}: status ${albumReq.status}`,
+						albumReq.status
+					);
+				}
+				album = albumReq.data ?? [];
+			}
 
-		if ($configStore.showPeopleDesc && (assetResponse.people ?? []).length == 0) {
-			const assetInfoRequest = await api.getAssetInfo(assetResponse.id, {
-				clientIdentifier: $clientIdentifierStore
-			});
-			assetResponse.people = assetInfoRequest.data.people;
-		}
+			if ($configStore.showPeopleDesc && (assetResponse.people ?? []).length == 0) {
+				const assetInfoRequest = await api.getAssetInfo(assetResponse.id, {
+					clientIdentifier: $clientIdentifierStore
+				});
+				if (assetInfoRequest.status !== 200) {
+					throw createFrameRequestError(
+						statusToFailureKind(assetInfoRequest.status),
+						`Failed to load asset info for asset ${assetResponse.id}: status ${assetInfoRequest.status}`,
+						assetInfoRequest.status
+					);
+				}
+				assetResponse.people = assetInfoRequest.data.people;
+			}
 
-		return [assetUrl, assetResponse, album] as [
-			string,
-			api.AssetResponseDto,
-			api.AlbumResponseDto[]
-		];
+			return [assetUrl, assetResponse, album] as [
+				string,
+				api.AssetResponseDto,
+				api.AlbumResponseDto[]
+			];
+		} catch (error) {
+			if (assetUrl?.startsWith('blob:')) {
+				(error as AssetLoadError).assetUrlToRevoke = assetUrl;
+			}
+
+			throw error;
+		}
 	}
 
 	function getObjectUrl(image: Blob) {
@@ -636,7 +931,7 @@
 	}
 
 	async function resumePlayback() {
-		if (adminStopped) {
+		if (adminStopped || connectivityState === 'reconnecting') {
 			return;
 		}
 
@@ -701,6 +996,9 @@
 		}
 
 		adminStopped = true;
+		clearReconnectRetry();
+		connectivityState = 'ready';
+		reconnectPausedPlayback = false;
 		overlayPausedPlayback = false;
 		infoVisible = false;
 		userPaused = true;
@@ -806,10 +1104,10 @@
 			}
 		});
 
+		startSessionLoops();
 		void (async () => {
 			await getNextAssets();
 			await syncFrameSession();
-			startSessionLoops();
 		})();
 
 		return () => {
@@ -836,6 +1134,7 @@
 	}
 
 	onDestroy(async () => {
+		clearReconnectRetry();
 		stopSessionLoops();
 
 		if (unsubscribeRestart) {
@@ -875,9 +1174,11 @@
 				{/if}
 			</div>
 		</div>
-	{:else if error}
-		<ErrorElement {authError} message={errorMessage} />
-	{:else if displayingAssets}
+	{:else if connectivityState === 'auth_error'}
+		<ErrorElement authError />
+	{:else if connectivityState === 'fatal_error'}
+		<ErrorElement message={fatalErrorMessage} />
+	{:else if displayingAssets.length}
 		<div class="absolute h-screen w-screen">
 			<AssetComponent
 				showLocation={$configStore.showImageLocation}
@@ -908,6 +1209,16 @@
 				}}
 			/>
 		</div>
+
+		{#if connectivityState === 'reconnecting'}
+			<div class="pointer-events-none fixed inset-x-0 top-4 z-20 flex justify-center px-4">
+				<div
+					class="rounded-full border border-white/15 bg-black/65 px-4 py-2 text-sm text-white shadow-lg backdrop-blur"
+				>
+					{reconnectMessage}
+				</div>
+			</div>
+		{/if}
 
 		{#each ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as corner}
 			<div
@@ -967,6 +1278,15 @@
 			onDone={handleDone}
 		/>
 	{:else}
-		<LoadingElement />
+		<div class="grid absolute h-dvh-safe w-screen place-items-center px-6">
+			<div class="flex max-w-md flex-col items-center gap-6 text-center text-white">
+				<LoadingElement />
+				<p class="text-sm text-white/70">
+					{connectivityState === 'reconnecting'
+						? reconnectMessage
+						: 'Loading frame...'}
+				</p>
+			</div>
+		</div>
 	{/if}
 </section>

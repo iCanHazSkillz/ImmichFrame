@@ -69,6 +69,67 @@ public class IcalCalendarServiceTests
             Is.EqualTo("https://calendar.google.com/calendar/ical/martel.s.g%40gmail.com/public/basic.ics"));
     }
 
+    [Test]
+    public async Task GetAppointments_ConvertsReturnedAppointmentTimesToConfiguredCalendarTimeZone()
+    {
+        var calendarTimeZone = TimeZoneInfo.FindSystemTimeZoneById("America/Edmonton");
+        var todayInTimeZone = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, calendarTimeZone);
+        var localStart = new DateTime(todayInTimeZone.Year, todayInTimeZone.Month, todayInTimeZone.Day, 9, 0, 0, DateTimeKind.Unspecified);
+        var utcStart = TimeZoneInfo.ConvertTimeToUtc(localStart, calendarTimeZone);
+        var utcEnd = utcStart.AddHours(1);
+
+        using var handler = new CaptureHttpMessageHandler((_, _) =>
+        {
+            var ics = $"""
+                       BEGIN:VCALENDAR
+                       VERSION:2.0
+                       PRODID:-//ImmichFrame.Tests//EN
+                       BEGIN:VEVENT
+                       UID:test-tz-event
+                       DTSTAMP:{utcStart:yyyyMMdd}T000000Z
+                       DTSTART:{utcStart:yyyyMMddTHHmmssZ}
+                       DTEND:{utcEnd:yyyyMMddTHHmmssZ}
+                       SUMMARY:Timezone test
+                       END:VEVENT
+                       END:VCALENDAR
+                       """;
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(ics)
+            });
+        });
+
+        using var httpClient = new HttpClient(handler);
+        var httpClientFactory = new Mock<IHttpClientFactory>();
+        httpClientFactory.Setup(x => x.CreateClient(It.IsAny<string>())).Returns(httpClient);
+
+        var generalSettings = new Mock<IGeneralSettings>();
+        generalSettings.SetupGet(x => x.Webcalendars).Returns(["https://calendar.example.com/basic.ics"]);
+        generalSettings.SetupGet(x => x.CalendarTimeZone).Returns("America/Edmonton");
+
+        var serverSettings = new Mock<IServerSettings>();
+        serverSettings.SetupGet(x => x.GeneralSettings).Returns(generalSettings.Object);
+
+        var settingsProvider = new Mock<ISettingsSnapshotProvider>();
+        settingsProvider.Setup(x => x.GetCurrentSnapshot()).Returns(new SettingsSnapshot(1, serverSettings.Object));
+
+        var service = new IcalCalendarService(
+            settingsProvider.Object,
+            NullLogger<IcalCalendarService>.Instance,
+            httpClientFactory.Object);
+
+        var appointments = await service.GetAppointments();
+
+        Assert.That(appointments, Has.Count.EqualTo(1));
+        Assert.Multiple(() =>
+        {
+            Assert.That(appointments[0].StartTime.Hour, Is.EqualTo(9));
+            Assert.That(appointments[0].EndTime.Hour, Is.EqualTo(10));
+            Assert.That(appointments[0].StartTime.Offset, Is.EqualTo(TimeZoneInfo.ConvertTime(new DateTimeOffset(utcStart, TimeSpan.Zero), calendarTimeZone).Offset));
+        });
+    }
+
     private sealed class CaptureHttpMessageHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> handler)
         : HttpMessageHandler
     {

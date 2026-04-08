@@ -2,6 +2,7 @@ using ImmichFrame.WebApi.Models;
 using ImmichFrame.WebApi.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ImmichFrame.Core.Helpers;
 
 namespace ImmichFrame.WebApi.Controllers;
 
@@ -38,18 +39,45 @@ public class AdminSettingsController : ControllerBase
             snapshot.Version,
             snapshot.Settings,
             _bootstrapSettingsHolder.Settings,
-            snapshot.CustomCss));
+            snapshot.CustomCss,
+            !string.IsNullOrWhiteSpace(snapshot.Settings.GeneralSettings.WeatherApiKey),
+            TimeZoneSettingsHelper.ResolveServerTimeZoneId(),
+            TimeZoneSettingsHelper.GetAvailableTimeZoneIds().ToList()));
     }
 
     [HttpPut]
     public ActionResult<AdminSettingsResponseDto> Update([FromBody] AdminSettingsUpdateRequest request)
     {
         request ??= new AdminSettingsUpdateRequest();
+
+        if (!TimeZoneSettingsHelper.TryResolveCalendarTimeZoneId(
+                request.General.CalendarTimeZone,
+                out var resolvedCalendarTimeZoneId))
+        {
+            ModelState.AddModelError(
+                nameof(request.General.CalendarTimeZone),
+                "Calendar timezone must be a valid timezone identifier.");
+            return ValidationProblem(ModelState);
+        }
+
+        request.General.CalendarTimeZone = string.IsNullOrWhiteSpace(request.General.CalendarTimeZone)
+            ? null
+            : resolvedCalendarTimeZoneId;
+
         var document = request.ToDocument();
 
         if (document.General.ShowCalendar && (document.General.Webcalendars == null || document.General.Webcalendars.Count == 0))
         {
             ModelState.AddModelError(nameof(document.General.Webcalendars), "At least one webcalendar is required when the calendar widget is enabled.");
+            return ValidationProblem(ModelState);
+        }
+
+        var existingSnapshot = _settingsProvider.GetCurrentSnapshot();
+        var hasWeatherApiKey = !string.IsNullOrWhiteSpace(existingSnapshot.Settings.GeneralSettings.WeatherApiKey)
+            || !string.IsNullOrWhiteSpace(request.WeatherApiKey);
+        if (document.General.ShowWeather && !hasWeatherApiKey)
+        {
+            ModelState.AddModelError(nameof(request.WeatherApiKey), "A weather API key is required before the weather widget can be enabled.");
             return ValidationProblem(ModelState);
         }
 
@@ -64,7 +92,7 @@ public class AdminSettingsController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
-        var snapshot = _settingsProvider.Update(document, sanitizedCustomCss);
+        var snapshot = _settingsProvider.Update(document, sanitizedCustomCss, request.WeatherApiKey);
 
         foreach (var session in _frameSessionRegistry.GetActiveSessions())
         {
@@ -79,6 +107,9 @@ public class AdminSettingsController : ControllerBase
             snapshot.Version,
             snapshot.Settings,
             _bootstrapSettingsHolder.Settings,
-            snapshot.CustomCss));
+            snapshot.CustomCss,
+            !string.IsNullOrWhiteSpace(snapshot.Settings.GeneralSettings.WeatherApiKey),
+            TimeZoneSettingsHelper.ResolveServerTimeZoneId(),
+            TimeZoneSettingsHelper.GetAvailableTimeZoneIds().ToList()));
     }
 }

@@ -200,6 +200,101 @@ namespace ImmichFrame.WebApi.Tests.Controllers
             Assert.That(content, Is.Not.Empty);
         }
 
+        [Test]
+        public async Task GetAssets_WhenImmichIsUnavailable_ReturnsServiceUnavailable()
+        {
+            _mockHttpMessageHandler.Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.IsAny<HttpRequestMessage>(),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ThrowsAsync(new HttpRequestException("Connection refused"));
+
+            var client = _factory.CreateClient();
+
+            var response = await client.GetAsync("/api/Asset");
+
+            Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.ServiceUnavailable));
+            var content = await response.Content.ReadAsStringAsync();
+            Assert.That(content, Does.Contain("temporarily unavailable"));
+        }
+
+        [Test]
+        public async Task GetAsset_WhenImmichIsUnavailable_ReturnsServiceUnavailableInsteadOfNotAcceptable()
+        {
+            var assetId = Guid.NewGuid();
+            var assetDtoJson = $@"
+            {{
+                ""id"": ""{assetId}"",
+                ""originalPath"": ""/path/to/image.jpg"",
+                ""type"": ""IMAGE"",
+                ""fileCreatedAt"": ""2023-10-26T10:00:00Z"",
+                ""fileModifiedAt"": ""2023-10-26T10:00:00Z"",
+                ""isFavorite"": true,
+                ""duration"": ""0:00:00"",
+                ""checksum"": ""testchecksum"",
+                ""deviceAssetId"": ""testDeviceAssetId"",
+                ""deviceId"": ""testDeviceId"",
+                ""ownerId"": ""testOwnerId"",
+                ""originalFileName"": ""image.jpg"",
+                ""localDateTime"": ""2023-10-26T10:00:00Z"",
+                ""visibility"": ""timeline"",
+                ""hasMetadata"": true,
+                ""isArchived"": false,
+                ""isOffline"": false,
+                ""isTrashed"": false,
+                ""thumbhash"": ""I0cMCQS94XmImZeXmYd3d3g="",
+                ""updatedAt"": ""2023-10-26T10:00:00Z""
+            }}";
+            var jsonResponse = $@"
+            {{
+                ""albums"": {{
+                    ""count"": 0,
+                    ""items"": [],
+                    ""total"": 0,
+                    ""facets"": []
+                }},
+                ""assets"": {{
+                    ""count"": 1,
+                    ""items"": [
+                        {assetDtoJson}
+                    ],
+                    ""total"": 1,
+                    ""facets"": [],
+                    ""nextPage"": null
+                }}
+            }}";
+
+            _mockHttpMessageHandler.Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.Is<HttpRequestMessage>(req => req.RequestUri!.ToString().Contains("/search/metadata")),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(() => new HttpResponseMessage
+                {
+                    StatusCode = HttpStatusCode.OK,
+                    Content = new StringContent(jsonResponse)
+                });
+
+            _mockHttpMessageHandler.Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.Is<HttpRequestMessage>(req => !req.RequestUri!.ToString().Contains("/search/metadata")),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ThrowsAsync(new HttpRequestException("Connection refused"));
+
+            var client = _factory.CreateClient();
+            var assetListResponse = await client.GetAsync("/api/Asset");
+            assetListResponse.EnsureSuccessStatusCode();
+
+            var response = await client.GetAsync($"/api/Asset/{assetId}/Asset?assetType=0");
+
+            Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.ServiceUnavailable));
+        }
+
         // TODO: Fix Test
         // [Test]
         // public async Task GetImage_VideoAsset_ReturnsVideoStream()

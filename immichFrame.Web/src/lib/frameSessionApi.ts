@@ -84,6 +84,7 @@ export interface AdminManagedGeneralSettings {
 	weatherFontSize?: string | null;
 	calendarFontSize?: string | null;
 	metadataFontSize?: string | null;
+	calendarTimeZone?: string | null;
 	clockStyle?: string | null;
 	weatherStyle?: string | null;
 	calendarStyle?: string | null;
@@ -135,6 +136,9 @@ export interface AdminSettingsResponseDto {
 	general: AdminManagedGeneralSettings;
 	accounts: AdminAccountSettingsDto[];
 	customCss: string;
+	weatherApiKeyConfigured: boolean;
+	serverTimeZone: string;
+	availableTimeZones: string[];
 	bootstrapManagedFields: string[];
 }
 
@@ -343,6 +347,7 @@ export async function updateAdminSettings(settings: {
 	general: AdminManagedGeneralSettings;
 	accounts: AdminManagedAccountSettings[];
 	customCss: string;
+	weatherApiKey?: string;
 }) {
 	const response = await fetch('/api/admin/settings', {
 		method: 'PUT',

@@ -67,6 +67,8 @@
         public string? WeatherFontSize { get; }
         public string? CalendarFontSize { get; }
         public string? MetadataFontSize { get; }
+        public string? CalendarTimeZone { get; }
+        public string? CalendarDateFormat { get; }
         public string? ClockStyle { get; }
         public string? WeatherStyle { get; }
         public string? CalendarStyle { get; }

@@ -66,6 +66,8 @@ public class GeneralSettings : IGeneralSettings, IConfigSettable
     public string? WeatherFontSize { get; set; }
     public string? CalendarFontSize { get; set; }
     public string? MetadataFontSize { get; set; }
+    public string? CalendarTimeZone { get; set; }
+    public string? CalendarDateFormat { get; set; }
     public string? ClockStyle { get; set; }
     public string? WeatherStyle { get; set; }
     public string? CalendarStyle { get; set; }

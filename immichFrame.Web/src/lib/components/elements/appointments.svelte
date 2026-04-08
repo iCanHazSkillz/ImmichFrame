@@ -1,6 +1,7 @@
 <script lang="ts">
 	import * as api from '$lib/index';
-	import { format, isSameDay, isToday, isValid } from 'date-fns';
+	import { isValid } from 'date-fns';
+	import { formatInTimeZone } from 'date-fns-tz';
 	import { configStore } from '$lib/stores/config.store';
 	import { clientIdentifierStore } from '$lib/stores/persist.store';
 	import {
@@ -11,6 +12,18 @@
 
 	api.init();
 
+	function getCalendarTimeZone() {
+		return $configStore.calendarTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+	}
+
+	function formatInCalendarTimeZone(date: Date, formatString: string, timeZone: string) {
+		try {
+			return formatInTimeZone(date, timeZone, formatString);
+		} catch {
+			return '';
+		}
+	}
+
 	function formatTimeRange(startTime: string, endTime: string) {
 		const startDate = new Date(startTime);
 		const endDate = new Date(endTime);
@@ -18,14 +31,9 @@
 			return '';
 		}
 
+		const timeZone = getCalendarTimeZone();
 		const clockFormat = $configStore.clockFormat ?? 'HH:mm';
-		if (isSameDay(startDate, endDate) && isToday(startDate)) {
-			return `${format(startDate, clockFormat)} - ${format(endDate, clockFormat)}`;
-		}
-
-		const dateFormat = $configStore.photoDateFormat ?? 'yyyy-MM-dd';
-		const dateTimeFormat = `${dateFormat} ${clockFormat}`;
-		return `${format(startDate, dateTimeFormat)} - ${format(endDate, dateTimeFormat)}`;
+		return `${formatInCalendarTimeZone(startDate, clockFormat, timeZone)} - ${formatInCalendarTimeZone(endDate, clockFormat, timeZone)}`;
 	}
 
 	let appointments = $state<api.IAppointment[]>([]);
@@ -55,8 +63,6 @@
 			clientIdentifier: $clientIdentifierStore
 		});
 		if (appointmentRequest.status == 200) {
-			appointments = appointmentRequest.data;
-
 			appointments = appointmentRequest.data.sort((a, b) => {
 				return new Date(a.startTime ?? '').getTime() - new Date(b.startTime ?? '').getTime();
 			});

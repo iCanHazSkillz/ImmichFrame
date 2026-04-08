@@ -20,7 +20,7 @@ public sealed record EffectiveSettingsSnapshot(long Version, ServerSettings Sett
 public interface IWritableEffectiveSettingsProvider : ISettingsSnapshotProvider
 {
     new EffectiveSettingsSnapshot GetCurrentSnapshot();
-    EffectiveSettingsSnapshot Update(AdminManagedSettingsDocument settings, string? customCss);
+    EffectiveSettingsSnapshot Update(AdminManagedSettingsDocument settings, string? customCss, string? weatherApiKey = null);
 }
 
 public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvider
@@ -28,27 +28,33 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
     private readonly object _sync = new();
     private readonly ServerSettings _bootstrapSettings;
     private readonly IAdminManagedSettingsStore _store;
+    private readonly IAdminManagedSecretsStore _secretStore;
     private readonly ICustomCssStore _customCssStore;
     private readonly ILogger<EffectiveSettingsProvider> _logger;
     private AdminManagedSettingsDocument _managedSettingsDocument;
+    private AdminManagedSecretsDocument _managedSecretsDocument;
     private EffectiveSettingsSnapshot _snapshot;
 
     public EffectiveSettingsProvider(
         BootstrapServerSettingsHolder bootstrapSettingsHolder,
         IAdminManagedSettingsStore store,
+        IAdminManagedSecretsStore secretStore,
         ICustomCssStore customCssStore,
         ILogger<EffectiveSettingsProvider> logger)
     {
         _bootstrapSettings = ServerSettingsFactory.Clone(bootstrapSettingsHolder.Settings);
         _store = store;
+        _secretStore = secretStore;
         _customCssStore = customCssStore;
         _logger = logger;
 
         var storedSettings = _store.LoadOrSeed(_bootstrapSettings);
         _managedSettingsDocument = CloneManagedSettingsDocument(storedSettings);
+        _managedSecretsDocument = CloneManagedSecretsDocument(_secretStore.Load());
         _snapshot = BuildSnapshot(
             1,
             _managedSettingsDocument,
+            _managedSecretsDocument,
             _customCssStore.LoadEditableCss(),
             _customCssStore.LoadStoredCssOverride() is not null);
         _store.Save(CloneManagedSettingsDocument(_managedSettingsDocument));
@@ -70,7 +76,7 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
         }
     }
 
-    public EffectiveSettingsSnapshot Update(AdminManagedSettingsDocument settings, string? customCss)
+    public EffectiveSettingsSnapshot Update(AdminManagedSettingsDocument settings, string? customCss, string? weatherApiKey = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
         settings.Normalize();
@@ -79,7 +85,9 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
         {
             var currentSnapshot = _snapshot;
             var currentDocument = CloneManagedSettingsDocument(_managedSettingsDocument);
+            var currentSecrets = CloneManagedSecretsDocument(_managedSecretsDocument);
             var nextManagedDocument = MergeManagedSettingsDocument(currentDocument, settings);
+            var nextManagedSecrets = MergeManagedSecretsDocument(currentSecrets, weatherApiKey);
             var fallbackCustomCss = _customCssStore.LoadFallbackCss();
             var hasCustomCssOverride = customCss is not null && !string.Equals(
                 NormalizeCustomCss(customCss),
@@ -88,6 +96,7 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
             var nextSnapshot = BuildSnapshot(
                 currentSnapshot.Version + 1,
                 nextManagedDocument,
+                nextManagedSecrets,
                 hasCustomCssOverride ? customCss! : fallbackCustomCss,
                 hasCustomCssOverride);
 
@@ -95,6 +104,7 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
 
             try
             {
+                _secretStore.Save(CloneManagedSecretsDocument(nextManagedSecrets));
                 _customCssStore.Save(nextSnapshot.HasCustomCssOverride ? nextSnapshot.CustomCss : null);
                 string loadedCustomCss;
                 try
@@ -108,6 +118,7 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
                 }
 
                 _managedSettingsDocument = nextManagedDocument;
+                _managedSecretsDocument = nextManagedSecrets;
                 _snapshot = nextSnapshot with { CustomCss = loadedCustomCss };
                 return CloneSnapshot(_snapshot);
             }
@@ -116,6 +127,7 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
                 try
                 {
                     _store.Save(currentDocument);
+                    _secretStore.Save(currentSecrets);
                 }
                 catch (Exception rollbackEx)
                 {
@@ -137,12 +149,22 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
         return ((ISettingsSnapshotProvider)this).GetCurrentSnapshot().Version;
     }
 
-    private EffectiveSettingsSnapshot BuildSnapshot(long version, AdminManagedSettingsDocument managedSettings, string customCss, bool hasCustomCssOverride)
+    private EffectiveSettingsSnapshot BuildSnapshot(
+        long version,
+        AdminManagedSettingsDocument managedSettings,
+        AdminManagedSecretsDocument managedSecrets,
+        string customCss,
+        bool hasCustomCssOverride)
     {
         var effectiveSettings = ServerSettingsFactory.Clone(_bootstrapSettings);
 
         managedSettings.Normalize();
+        managedSecrets.Normalize();
         managedSettings.General.ApplyTo(effectiveSettings.GeneralSettingsImpl ??= new GeneralSettings());
+        if (!string.IsNullOrWhiteSpace(managedSecrets.WeatherApiKey))
+        {
+            effectiveSettings.GeneralSettingsImpl.WeatherApiKey = managedSecrets.WeatherApiKey;
+        }
 
         var effectiveAccounts = effectiveSettings.AccountsImpl.ToList();
         var effectiveAccountsById = new Dictionary<string, ServerAccountSettings>(StringComparer.Ordinal);
@@ -250,11 +272,31 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
             ?? new AdminManagedAccountSettings();
     }
 
+    private static AdminManagedSecretsDocument CloneManagedSecretsDocument(AdminManagedSecretsDocument settings)
+    {
+        return JsonSerializer.Deserialize<AdminManagedSecretsDocument>(JsonSerializer.Serialize(settings))
+            ?? new AdminManagedSecretsDocument();
+    }
+
     private static string NormalizeCustomCss(string? css)
     {
         return (css ?? string.Empty)
             .Replace("\r\n", "\n", StringComparison.Ordinal)
             .Replace('\r', '\n')
             .Trim();
+    }
+
+    private static AdminManagedSecretsDocument MergeManagedSecretsDocument(
+        AdminManagedSecretsDocument currentSecrets,
+        string? weatherApiKey)
+    {
+        var mergedSecrets = CloneManagedSecretsDocument(currentSecrets);
+        if (!string.IsNullOrWhiteSpace(weatherApiKey))
+        {
+            mergedSecrets.WeatherApiKey = weatherApiKey.Trim();
+        }
+
+        mergedSecrets.Normalize();
+        return mergedSecrets;
     }
 }

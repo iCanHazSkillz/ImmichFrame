@@ -33,6 +33,7 @@ public class AdminSettingsControllerTests
                     var generalSettings = new GeneralSettings
                     {
                         AuthenticationSecret = "test-secret",
+                        WeatherApiKey = "bootstrap-weather-key",
                         Interval = 45,
                         ShowClock = true,
                         ShowWeather = true,
@@ -63,6 +64,10 @@ public class AdminSettingsControllerTests
                     services.AddSingleton(new AdminManagedSettingsStoreOptions
                     {
                         StorePath = Path.Combine(_tempAppDataPath, "admin-settings.json")
+                    });
+                    services.AddSingleton(new AdminManagedSecretsStoreOptions
+                    {
+                        StorePath = Path.Combine(_tempAppDataPath, "admin-secrets.json")
                     });
                     services.AddSingleton(new CustomCssStoreOptions
                     {
@@ -116,6 +121,9 @@ public class AdminSettingsControllerTests
             Assert.That(response.General.ShowClock, Is.True);
             Assert.That(response.General.ShowWeather, Is.True);
             Assert.That(response.General.ShowCalendar, Is.True);
+            Assert.That(response.WeatherApiKeyConfigured, Is.True);
+            Assert.That(response.ServerTimeZone, Is.Not.Empty);
+            Assert.That(response.AvailableTimeZones, Is.Not.Empty);
             Assert.That(response.Accounts, Has.Count.EqualTo(1));
             Assert.That(response.Accounts[0].ImmichServerUrl, Is.EqualTo(TestImmichServerUrl));
             Assert.That(response.Accounts[0].AccountIdentifier, Is.EqualTo(CreateAccountIdentifier()));
@@ -607,7 +615,8 @@ public class AdminSettingsControllerTests
         var initialJson = await adminClient.GetStringAsync("/api/admin/settings");
         Assert.Multiple(() =>
         {
-            Assert.That(initialJson, Does.Not.Contain("weatherApiKey"));
+            Assert.That(initialJson, Does.Contain("weatherApiKeyConfigured"));
+            Assert.That(initialJson, Does.Not.Contain("\"weatherApiKey\":"));
             Assert.That(initialJson, Does.Not.Contain("webhook"));
         });
 
@@ -664,7 +673,8 @@ public class AdminSettingsControllerTests
         var responseJson = await response.Content.ReadAsStringAsync();
         Assert.Multiple(() =>
         {
-            Assert.That(responseJson, Does.Not.Contain("weatherApiKey"));
+            Assert.That(responseJson, Does.Contain("weatherApiKeyConfigured"));
+            Assert.That(responseJson, Does.Not.Contain("\"weatherApiKey\":"));
             Assert.That(responseJson, Does.Not.Contain("webhook"));
         });
 
@@ -674,6 +684,157 @@ public class AdminSettingsControllerTests
             Assert.That(persistedJson, Does.Not.Contain("WeatherApiKey"));
             Assert.That(persistedJson, Does.Not.Contain("Webhook"));
         });
+    }
+
+    [Test]
+    public async Task Update_PersistsWriteOnlyWeatherApiKeyInSecretStore()
+    {
+        var adminClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var updateRequest = CreateValidUpdateRequest(string.Empty);
+        updateRequest.General.ShowWeather = true;
+        updateRequest.WeatherApiKey = "updated-weather-key";
+
+        var response = await adminClient.PutAsJsonAsync("/api/admin/settings", updateRequest);
+        response.EnsureSuccessStatusCode();
+
+        var responseJson = await response.Content.ReadAsStringAsync();
+        Assert.That(responseJson, Does.Not.Contain("\"weatherApiKey\":"));
+        Assert.That(responseJson, Does.Contain("weatherApiKeyConfigured"));
+
+        var secretPath = Path.Combine(_tempAppDataPath, "admin-secrets.json");
+        Assert.That(File.Exists(secretPath), Is.True);
+        var secretJson = await File.ReadAllTextAsync(secretPath);
+        Assert.That(secretJson, Does.Contain("updated-weather-key"));
+
+        var settingsJson = await File.ReadAllTextAsync(Path.Combine(_tempAppDataPath, "admin-settings.json"));
+        Assert.That(settingsJson, Does.Not.Contain("updated-weather-key"));
+    }
+
+    [Test]
+    public async Task Update_NormalizesWindowsCalendarTimeZoneToCanonicalIana()
+    {
+        var adminClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var updateRequest = CreateValidUpdateRequest(string.Empty);
+        updateRequest.General.CalendarTimeZone = "Eastern Standard Time";
+
+        var response = await adminClient.PutAsJsonAsync("/api/admin/settings", updateRequest);
+        response.EnsureSuccessStatusCode();
+
+        var updatedSettings = await response.Content.ReadFromJsonAsync<AdminSettingsResponseDto>();
+        Assert.That(updatedSettings, Is.Not.Null);
+        Assert.That(updatedSettings!.General.CalendarTimeZone, Is.EqualTo("America/New_York"));
+
+        var persistedJson = await File.ReadAllTextAsync(Path.Combine(_tempAppDataPath, "admin-settings.json"));
+        Assert.That(persistedJson, Does.Contain("America/New_York"));
+    }
+
+    [Test]
+    public async Task Update_ReturnsBadRequest_WhenCalendarTimeZoneIsInvalid()
+    {
+        var adminClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var updateRequest = CreateValidUpdateRequest(string.Empty);
+        updateRequest.General.CalendarTimeZone = "Definitely/Not-A-TimeZone";
+
+        var response = await adminClient.PutAsJsonAsync("/api/admin/settings", updateRequest);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+    }
+
+    [Test]
+    public async Task Update_ReturnsBadRequest_WhenWeatherEnabledWithoutAnyConfiguredKey()
+    {
+        using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureTestServices(services =>
+                {
+                    var generalSettings = new GeneralSettings
+                    {
+                        AuthenticationSecret = "test-secret",
+                        Interval = 45,
+                        ShowClock = true,
+                        ShowWeather = false,
+                        ShowCalendar = false,
+                        ClockFormat = "hh:mm",
+                        ClockDateFormat = "eee, MMM d",
+                        PhotoDateFormat = "MM/dd/yyyy",
+                        ImageLocationFormat = "City,State,Country",
+                        Layout = "splitview",
+                        Language = "en"
+                    };
+
+                    var accountSettings = new ServerAccountSettings
+                    {
+                        ImmichServerUrl = TestImmichServerUrl,
+                        ApiKey = TestApiKey
+                    };
+
+                    var serverSettings = new ServerSettings
+                    {
+                        GeneralSettingsImpl = generalSettings,
+                        AccountsImpl = new List<ServerAccountSettings> { accountSettings }
+                    };
+
+                    services.AddSingleton(new BootstrapServerSettingsHolder(serverSettings));
+                    services.AddSingleton(new AdminManagedSettingsStoreOptions
+                    {
+                        StorePath = Path.Combine(_tempAppDataPath, "admin-settings-no-weather.json")
+                    });
+                    services.AddSingleton(new AdminManagedSecretsStoreOptions
+                    {
+                        StorePath = Path.Combine(_tempAppDataPath, "admin-secrets-no-weather.json")
+                    });
+                    services.AddSingleton(new CustomCssStoreOptions
+                    {
+                        StorePath = Path.Combine(_tempAppDataPath, "custom-no-weather.css"),
+                        FallbackPath = Path.Combine(AppContext.BaseDirectory, "wwwroot", "static", "custom.css")
+                    });
+                    services.AddSingleton<IAdminBasicAuthService>(_ =>
+                        new AdminBasicAuthService(new Hashtable
+                        {
+                            ["IMMICHFRAME_AUTH_BASIC_ADMIN_USER"] = "admin",
+                            ["IMMICHFRAME_AUTH_BASIC_ADMIN_HASH"] =
+                                "{SHA}" + Convert.ToBase64String(System.Security.Cryptography.SHA1.HashData(System.Text.Encoding.UTF8.GetBytes("secret")))
+                        }));
+                    services.AddSingleton<IFrameSessionRegistry>(_ =>
+                        new FrameSessionRegistry(
+                            new FrameSessionRegistryOptions
+                            {
+                                DisplayNameStorePath = Path.Combine(_tempAppDataPath, "frame-session-display-names-no-weather.json")
+                            },
+                            null,
+                            null));
+                });
+            });
+
+        var adminClient = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var updateRequest = CreateValidUpdateRequest(string.Empty);
+        updateRequest.General.ShowWeather = true;
+        updateRequest.WeatherApiKey = null;
+
+        var response = await adminClient.PutAsJsonAsync("/api/admin/settings", updateRequest);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
     }
 
     [Test]

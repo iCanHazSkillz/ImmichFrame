@@ -6,6 +6,9 @@ public class AdminSettingsResponseDto
     public AdminManagedGeneralSettings General { get; set; } = new();
     public List<AdminAccountSettingsDto> Accounts { get; set; } = [];
     public string CustomCss { get; set; } = string.Empty;
+    public bool WeatherApiKeyConfigured { get; set; }
+    public string ServerTimeZone { get; set; } = string.Empty;
+    public List<string> AvailableTimeZones { get; set; } = [];
     public List<string> BootstrapManagedFields { get; set; } =
     [
         "ImmichServerUrl",
@@ -19,7 +22,10 @@ public class AdminSettingsResponseDto
         long version,
         ServerSettings effective,
         ServerSettings bootstrap,
-        string customCss)
+        string customCss,
+        bool weatherApiKeyConfigured,
+        string serverTimeZone,
+        List<string> availableTimeZones)
     {
         ArgumentNullException.ThrowIfNull(effective);
         ArgumentNullException.ThrowIfNull(bootstrap);
@@ -51,6 +57,9 @@ public class AdminSettingsResponseDto
             Version = version,
             General = AdminManagedGeneralSettings.FromGeneralSettings(effective.GeneralSettings),
             CustomCss = customCss,
+            WeatherApiKeyConfigured = weatherApiKeyConfigured,
+            ServerTimeZone = serverTimeZone,
+            AvailableTimeZones = availableTimeZones,
             Accounts = orderedIdentifiers
                 .Select((identifier, index) =>
                 {
@@ -88,6 +97,7 @@ public class AdminSettingsUpdateRequest
     public AdminManagedGeneralSettings General { get; set; } = new();
     public List<AdminManagedAccountSettings> Accounts { get; set; } = [];
     public string CustomCss { get; set; } = string.Empty;
+    public string? WeatherApiKey { get; set; }
 
     public AdminManagedSettingsDocument ToDocument()
     {
