@@ -1,6 +1,11 @@
 import { get } from 'svelte/store';
 import { authSecretStore } from '$lib/stores/persist.store';
 
+const APP_INSTANCE_HEADER_NAME = 'X-ImmichFrame-Instance';
+
+let observedAppInstanceToken: string | null = null;
+let reloadInProgress = false;
+
 export type FramePlaybackState = 'Playing' | 'Paused';
 export type FrameSessionStatus = 'Active' | 'Stopped';
 export type FrameAdminCommandType =
@@ -177,6 +182,31 @@ function throwIfNotOk(response: Response, message: string) {
 	}
 }
 
+function observeAppInstance(response: Response) {
+	if (!response.ok) {
+		return;
+	}
+
+	const nextToken = response.headers.get(APP_INSTANCE_HEADER_NAME)?.trim();
+	if (!nextToken) {
+		return;
+	}
+
+	if (observedAppInstanceToken == null) {
+		observedAppInstanceToken = nextToken;
+		return;
+	}
+
+	if (observedAppInstanceToken === nextToken || reloadInProgress || typeof window === 'undefined') {
+		observedAppInstanceToken = nextToken;
+		return;
+	}
+
+	observedAppInstanceToken = nextToken;
+	reloadInProgress = true;
+	window.location.reload();
+}
+
 export async function putFrameSessionSnapshot(
 	clientIdentifier: string,
 	snapshot: FrameSessionSnapshotDto
@@ -187,6 +217,7 @@ export async function putFrameSessionSnapshot(
 		body: JSON.stringify(snapshot)
 	});
 
+	observeAppInstance(response);
 	throwIfNotOk(response, `Failed to sync frame session: ${response.status}`);
 
 	return response;
@@ -200,6 +231,11 @@ export async function getFrameSessionCommands(clientIdentifier: string) {
 				headers: getHeaders()
 			}
 		);
+
+		observeAppInstance(response);
+		if (reloadInProgress) {
+			return [];
+		}
 
 		if (!response.ok) {
 			const responseText = await response.text();
