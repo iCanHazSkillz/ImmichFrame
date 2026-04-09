@@ -14,6 +14,7 @@
 
 	interface Props {
 		assets: [string, AssetResponseDto, api.AlbumResponseDto[]][];
+		displayGeneration?: number;
 		interval?: number;
 		error?: boolean;
 		loaded?: boolean;
@@ -30,12 +31,13 @@
 		imagePan?: boolean;
 		showInfo: boolean;
 		playAudio?: boolean;
-		onVideoWaiting?: () => void;
-		onVideoPlaying?: () => void;
+		onVideoWaiting?: (displayGeneration: number) => void;
+		onVideoPlaying?: (displayGeneration: number) => void;
 	}
 
 	let {
 		assets,
+		displayGeneration = 0,
 		interval = 20,
 		error = false,
 		loaded = false,
@@ -52,8 +54,8 @@
 		imagePan = false,
 		showInfo = $bindable(false),
 		playAudio = false,
-		onVideoWaiting = () => {},
-		onVideoPlaying = () => {}
+		onVideoWaiting = (_displayGeneration: number) => {},
+		onVideoPlaying = (_displayGeneration: number) => {}
 	}: Props = $props();
 	let instantTransition = slideshowStore.instantTransition;
 	let transitionDuration = $derived(
@@ -105,6 +107,7 @@
 					<div id="image_portrait_1" class="relative grid border-r-2 border-primary h-dvh-safe">
 						<Asset
 							asset={assets[0]}
+							{displayGeneration}
 							{interval}
 							{showLocation}
 							{showPhotoDate}
@@ -126,6 +129,7 @@
 					<div id="image_portrait_2" class="relative grid border-l-2 border-primary h-dvh-safe">
 						<Asset
 							asset={assets[1]}
+							{displayGeneration}
 							{interval}
 							{showLocation}
 							{showPhotoDate}
@@ -149,6 +153,7 @@
 				<div id="image_default" class="relative grid h-dvh-safe w-screen">
 					<Asset
 						asset={assets[0]}
+						{displayGeneration}
 						{interval}
 						{showLocation}
 						{showPhotoDate}

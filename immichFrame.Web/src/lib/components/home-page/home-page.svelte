@@ -87,6 +87,7 @@
 	let progressBar: ProgressBar = $state() as ProgressBar;
 	let assetComponent: AssetComponentInstance = $state() as AssetComponentInstance;
 	let currentDuration: number = $state($configStore.interval ?? 20);
+	let activeDisplayGeneration: number = $state(0);
 	let userPaused: boolean = $state(false);
 
 	let infoVisible: boolean = $state(false);
@@ -265,6 +266,13 @@
 
 	function hasDisplayedAsset() {
 		return displayingAssets.length > 0 && assetsState.loaded && assetsState.assets.length > 0;
+	}
+
+	function isActiveVideoDisplay(displayGeneration: number) {
+		return (
+			displayGeneration === activeDisplayGeneration &&
+			displayingAssets.some((asset) => isVideoAsset(asset))
+		);
 	}
 
 	function clearReconnectRetry() {
@@ -639,13 +647,14 @@
 		isHandlingAssetTransition = true;
 		try {
 			userPaused = false;
+			await progressBar.restart(false);
+			await assetComponent?.pause?.();
 			$instantTransition = instant;
 			const transitioned = previous ? await getPreviousAssets() : await getNextAssets();
 			if (!transitioned) {
 				return;
 			}
 			await tick();
-			await progressBar.restart(false);
 			await assetComponent?.play?.();
 			void progressBar.play();
 			await syncFrameSession();
@@ -716,6 +725,7 @@
 
 		assetBacklog = nextBacklog;
 		displayingAssets = next;
+		activeDisplayGeneration += 1;
 		setCurrentDisplay(next);
 		assetsState = nextAssetsState;
 		currentDisplayDurationSeconds = currentDuration;
@@ -756,6 +766,7 @@
 		}
 
 		displayingAssets = next;
+		activeDisplayGeneration += 1;
 		setCurrentDisplay(next);
 		assetsState = nextAssetsState;
 		currentDisplayDurationSeconds = currentDuration;
@@ -1106,7 +1117,15 @@
 
 		startSessionLoops();
 		void (async () => {
-			await getNextAssets();
+			const loaded = await getNextAssets();
+			if (!loaded || adminStopped) {
+				return;
+			}
+
+			await tick();
+			await progressBar?.restart?.(false);
+			await assetComponent?.play?.();
+			void progressBar?.play?.();
 			await syncFrameSession();
 		})();
 
@@ -1182,6 +1201,7 @@
 		<div class="absolute h-screen w-screen">
 			<AssetComponent
 				showLocation={$configStore.showImageLocation}
+				displayGeneration={activeDisplayGeneration}
 				interval={currentDuration}
 				showPhotoDate={$configStore.showPhotoDate}
 				showImageDesc={$configStore.showImageDesc}
@@ -1195,17 +1215,34 @@
 				bind:this={assetComponent}
 				bind:showInfo={infoVisible}
 				playAudio={$configStore.playAudio}
-				onVideoWaiting={async () => {
+				onVideoWaiting={async (displayGeneration) => {
+					if (
+						adminStopped ||
+						reconnectPausedPlayback ||
+						connectivityState === 'reconnecting' ||
+						!isActiveVideoDisplay(displayGeneration)
+					) {
+						return;
+					}
+
 					pauseCurrentDisplayClock();
 					await progressBar.pause();
 					await syncFrameSession();
 				}}
-				onVideoPlaying={async () => {
-					if (!userPaused) {
-						resumeCurrentDisplayClock();
-						await progressBar.play();
-						await syncFrameSession();
+				onVideoPlaying={async (displayGeneration) => {
+					if (
+						adminStopped ||
+						reconnectPausedPlayback ||
+						connectivityState === 'reconnecting' ||
+						userPaused ||
+						!isActiveVideoDisplay(displayGeneration)
+					) {
+						return;
 					}
+
+					resumeCurrentDisplayClock();
+					await progressBar.play();
+					await syncFrameSession();
 				}}
 			/>
 		</div>
@@ -1269,7 +1306,6 @@
 		/>
 
 		<ProgressBar
-			autoplay
 			duration={currentDuration}
 			hidden={!$configStore.showProgressBar}
 			location={ProgressBarLocation.Bottom}
