@@ -167,9 +167,9 @@ public class FrameSessionsControllerTests
         var secondTempAppDataPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(secondTempAppDataPath);
 
-        using var secondFactory = CreateFactory(secondTempAppDataPath);
         try
         {
+            using var secondFactory = CreateFactory(secondTempAppDataPath);
             var firstFrameClient = _factory.CreateClient();
             firstFrameClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "test-secret");
 
@@ -211,9 +211,9 @@ public class FrameSessionsControllerTests
         Directory.CreateDirectory(tempWebRootPath);
         await File.WriteAllTextAsync(Path.Combine(tempWebRootPath, "index.html"), "<!doctype html><html><body>frame shell</body></html>");
 
-        using var htmlFactory = CreateFactory(secondTempAppDataPath, tempWebRootPath);
         try
         {
+            using var htmlFactory = CreateFactory(secondTempAppDataPath, tempWebRootPath);
             var client = htmlFactory.CreateClient();
 
             var indexResponse = await client.GetAsync("/index.html");
