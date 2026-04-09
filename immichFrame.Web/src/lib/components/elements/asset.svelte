@@ -11,6 +11,7 @@
 
 	interface Props {
 		asset: [url: string, asset: AssetResponseDto, albums: AlbumResponseDto[]];
+		displayGeneration?: number;
 		showLocation: boolean;
 		showPhotoDate: boolean;
 		showImageDesc: boolean;
@@ -24,12 +25,13 @@
 		split: boolean;
 		showInfo: boolean;
 		playAudio: boolean;
-		onVideoWaiting?: () => void;
-		onVideoPlaying?: () => void;
+		onVideoWaiting?: (displayGeneration: number) => void;
+		onVideoPlaying?: (displayGeneration: number) => void;
 	}
 
 	let {
 		asset,
+		displayGeneration = 0,
 		showLocation,
 		showPhotoDate,
 		showImageDesc,
@@ -43,8 +45,8 @@
 		split,
 		showInfo = $bindable(false),
 		playAudio,
-		onVideoWaiting = () => {},
-		onVideoPlaying = () => {}
+		onVideoWaiting = (_displayGeneration: number) => {},
+		onVideoPlaying = (_displayGeneration: number) => {}
 	}: Props = $props();
 
 	let debug = false;
@@ -246,8 +248,8 @@
 					}
 				}}
 				onerror={() => console.error('Video failed to load:', asset[0])}
-				onwaiting={onVideoWaiting}
-				onplaying={onVideoPlaying}
+				onwaiting={() => onVideoWaiting(displayGeneration)}
+				onplaying={() => onVideoPlaying(displayGeneration)}
 			></video>
 		{:else}
 			<img
