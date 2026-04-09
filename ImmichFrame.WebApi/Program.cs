@@ -115,6 +115,7 @@ builder.Services.AddTransient<Func<IAccountSettings, IAccountImmichFrameLogic>>(
     account => ActivatorUtilities.CreateInstance<PooledImmichFrameLogic>(srv, account));
 
 builder.Services.AddSingleton<IImmichFrameLogic, MultiImmichFrameLogicDelegate>();
+builder.Services.AddSingleton(new AppInstanceTokenProvider(version));
 builder.Services.AddSingleton(new FrameSessionRegistryOptions
 {
     DisplayNameStorePath = Path.Combine(appDataPath, "frame-session-display-names.json")
@@ -207,6 +208,30 @@ if (app.Environment.IsDevelopment())
 app.UseForwardedHeaders();
 app.Use(async (context, next) =>
 {
+    context.Response.OnStarting(() =>
+    {
+        if (context.Request.Path.StartsWithSegments("/api/frame-sessions", StringComparison.OrdinalIgnoreCase) &&
+            context.Response.StatusCode >= StatusCodes.Status200OK &&
+            context.Response.StatusCode < StatusCodes.Status300MultipleChoices)
+        {
+            var appInstanceTokenProvider = context.RequestServices.GetRequiredService<AppInstanceTokenProvider>();
+            context.Response.Headers[AppInstanceTokenProvider.ResponseHeaderName] = appInstanceTokenProvider.CurrentToken;
+        }
+
+        if ((HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method)) &&
+            context.Response.StatusCode == StatusCodes.Status200OK &&
+            context.Response.ContentType?.StartsWith("text/html", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            ApplyNoCacheHeaders(context.Response);
+        }
+
+        return Task.CompletedTask;
+    });
+
+    await next();
+});
+app.Use(async (context, next) =>
+{
     if (!context.Request.Path.Equals("/static/custom.css", StringComparison.OrdinalIgnoreCase))
     {
         await next();
@@ -215,9 +240,7 @@ app.Use(async (context, next) =>
 
     var customCssStore = context.RequestServices.GetRequiredService<ICustomCssStore>();
     context.Response.ContentType = "text/css; charset=utf-8";
-    context.Response.Headers.CacheControl = "no-store, no-cache, must-revalidate, max-age=0";
-    context.Response.Headers.Pragma = "no-cache";
-    context.Response.Headers.Expires = "0";
+    ApplyNoCacheHeaders(context.Response);
     await context.Response.WriteAsync(customCssStore.LoadStylesheetContent());
 });
 app.UseStaticFiles();
@@ -235,6 +258,13 @@ app.MapControllers();
 app.MapFallbackToFile("/index.html");
 
 app.Run();
+
+static void ApplyNoCacheHeaders(HttpResponse response)
+{
+    response.Headers.CacheControl = "no-cache, no-store, must-revalidate, max-age=0";
+    response.Headers.Pragma = "no-cache";
+    response.Headers.Expires = "0";
+}
 
 // Make Program public for WebApplicationFactory
 public partial class Program { }

@@ -4,6 +4,7 @@ using System.Collections;
 using ImmichFrame.Core.Interfaces;
 using ImmichFrame.WebApi.Models;
 using ImmichFrame.WebApi.Services;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
@@ -14,6 +15,7 @@ namespace ImmichFrame.WebApi.Tests.Controllers;
 [TestFixture]
 public class FrameSessionsControllerTests
 {
+    private const string AppInstanceHeaderName = "X-ImmichFrame-Instance";
     private WebApplicationFactory<Program> _factory = null!;
     private string _tempAppDataPath = null!;
 
@@ -23,53 +25,7 @@ public class FrameSessionsControllerTests
         _tempAppDataPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempAppDataPath);
 
-        _factory = new WebApplicationFactory<Program>()
-            .WithWebHostBuilder(builder =>
-            {
-                builder.ConfigureTestServices(services =>
-                {
-                    var generalSettings = new GeneralSettings
-                    {
-                        AuthenticationSecret = "test-secret",
-                        PhotoDateFormat = "MM/dd/yyyy",
-                        ImageLocationFormat = "City,State,Country",
-                        Language = "en"
-                    };
-
-                    var accountSettings = new ServerAccountSettings
-                    {
-                        ImmichServerUrl = "http://mock-immich-server.com",
-                        ApiKey = "test-api-key"
-                    };
-
-                    var serverSettings = new ServerSettings
-                    {
-                        GeneralSettingsImpl = generalSettings,
-                        AccountsImpl = new List<ServerAccountSettings> { accountSettings }
-                    };
-
-                    services.AddSingleton(new BootstrapServerSettingsHolder(serverSettings));
-                    services.AddSingleton(new AdminManagedSettingsStoreOptions
-                    {
-                        StorePath = Path.Combine(_tempAppDataPath, "admin-settings.json")
-                    });
-                    services.AddSingleton<IAdminBasicAuthService>(_ =>
-                        new AdminBasicAuthService(new Hashtable
-                        {
-                            ["IMMICHFRAME_AUTH_BASIC_ADMIN_USER"] = "admin",
-                            ["IMMICHFRAME_AUTH_BASIC_ADMIN_HASH"] =
-                                "{SHA}" + Convert.ToBase64String(System.Security.Cryptography.SHA1.HashData(System.Text.Encoding.UTF8.GetBytes("secret")))
-                        }));
-                    services.AddSingleton<IFrameSessionRegistry>(_ =>
-                        new FrameSessionRegistry(
-                            new FrameSessionRegistryOptions
-                            {
-                                DisplayNameStorePath = Path.Combine(_tempAppDataPath, "frame-session-display-names.json")
-                            },
-                            null,
-                            null));
-                });
-            });
+        _factory = CreateFactory(_tempAppDataPath);
     }
 
     [TearDown]
@@ -181,6 +137,113 @@ public class FrameSessionsControllerTests
     }
 
     [Test]
+    public async Task FrameSessionResponses_IncludeStableAppInstanceHeader()
+    {
+        var frameClient = _factory.CreateClient();
+        frameClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "test-secret");
+
+        var snapshot = new FrameSessionSnapshotDto
+        {
+            PlaybackState = FramePlaybackState.Playing,
+            Status = FrameSessionStatus.Active,
+            History = []
+        };
+
+        var putResponse = await frameClient.PutAsJsonAsync("/api/frame-sessions/frame-instance", snapshot);
+        putResponse.EnsureSuccessStatusCode();
+        var putHeaderValue = GetRequiredHeaderValue(putResponse, AppInstanceHeaderName);
+
+        var commandsResponse = await frameClient.GetAsync("/api/frame-sessions/frame-instance/commands");
+        commandsResponse.EnsureSuccessStatusCode();
+        var commandsHeaderValue = GetRequiredHeaderValue(commandsResponse, AppInstanceHeaderName);
+
+        Assert.That(putHeaderValue, Is.Not.Empty);
+        Assert.That(commandsHeaderValue, Is.EqualTo(putHeaderValue));
+    }
+
+    [Test]
+    public async Task SeparateHosts_ExposeDifferentAppInstanceHeaders()
+    {
+        var secondTempAppDataPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(secondTempAppDataPath);
+
+        using var secondFactory = CreateFactory(secondTempAppDataPath);
+        try
+        {
+            var firstFrameClient = _factory.CreateClient();
+            firstFrameClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "test-secret");
+
+            var secondFrameClient = secondFactory.CreateClient();
+            secondFrameClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "test-secret");
+
+            var snapshot = new FrameSessionSnapshotDto
+            {
+                PlaybackState = FramePlaybackState.Playing,
+                Status = FrameSessionStatus.Active,
+                History = []
+            };
+
+            var firstResponse = await firstFrameClient.PutAsJsonAsync("/api/frame-sessions/frame-a", snapshot);
+            firstResponse.EnsureSuccessStatusCode();
+            var firstHeaderValue = GetRequiredHeaderValue(firstResponse, AppInstanceHeaderName);
+
+            var secondResponse = await secondFrameClient.PutAsJsonAsync("/api/frame-sessions/frame-b", snapshot);
+            secondResponse.EnsureSuccessStatusCode();
+            var secondHeaderValue = GetRequiredHeaderValue(secondResponse, AppInstanceHeaderName);
+
+            Assert.That(secondHeaderValue, Is.Not.EqualTo(firstHeaderValue));
+        }
+        finally
+        {
+            if (Directory.Exists(secondTempAppDataPath))
+            {
+                Directory.Delete(secondTempAppDataPath, true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task HtmlShellResponses_AreServedWithNoCacheHeaders()
+    {
+        var secondTempAppDataPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var tempWebRootPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(secondTempAppDataPath);
+        Directory.CreateDirectory(tempWebRootPath);
+        await File.WriteAllTextAsync(Path.Combine(tempWebRootPath, "index.html"), "<!doctype html><html><body>frame shell</body></html>");
+
+        using var htmlFactory = CreateFactory(secondTempAppDataPath, tempWebRootPath);
+        try
+        {
+            var client = htmlFactory.CreateClient();
+
+            var indexResponse = await client.GetAsync("/index.html");
+            indexResponse.EnsureSuccessStatusCode();
+
+            var fallbackResponse = await client.GetAsync("/frames/example");
+            fallbackResponse.EnsureSuccessStatusCode();
+
+            Assert.That(GetRequiredHeaderValue(indexResponse, "Cache-Control"), Does.Contain("no-cache"));
+            Assert.That(GetRequiredHeaderValue(indexResponse, "Cache-Control"), Does.Contain("must-revalidate"));
+            Assert.That(GetRequiredHeaderValue(fallbackResponse, "Cache-Control"), Does.Contain("no-cache"));
+            Assert.That(GetRequiredHeaderValue(fallbackResponse, "Cache-Control"), Does.Contain("must-revalidate"));
+            Assert.That(indexResponse.Content.Headers.ContentType?.MediaType, Is.EqualTo("text/html"));
+            Assert.That(fallbackResponse.Content.Headers.ContentType?.MediaType, Is.EqualTo("text/html"));
+        }
+        finally
+        {
+            if (Directory.Exists(secondTempAppDataPath))
+            {
+                Directory.Delete(secondTempAppDataPath, true);
+            }
+
+            if (Directory.Exists(tempWebRootPath))
+            {
+                Directory.Delete(tempWebRootPath, true);
+            }
+        }
+    }
+
+    [Test]
     public async Task EnqueueCommand_ReturnsGoneForStaleSession()
     {
         var registry = _factory.Services.GetRequiredService<IFrameSessionRegistry>();
@@ -212,5 +275,77 @@ public class FrameSessionsControllerTests
         });
 
         Assert.That(loginResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK), await loginResponse.Content.ReadAsStringAsync());
+    }
+
+    private static WebApplicationFactory<Program> CreateFactory(string tempAppDataPath, string? webRootPath = null)
+    {
+        return new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                if (!string.IsNullOrWhiteSpace(webRootPath))
+                {
+                    builder.UseSetting(WebHostDefaults.WebRootKey, webRootPath);
+                }
+
+                builder.ConfigureTestServices(services =>
+                {
+                    var generalSettings = new GeneralSettings
+                    {
+                        AuthenticationSecret = "test-secret",
+                        PhotoDateFormat = "MM/dd/yyyy",
+                        ImageLocationFormat = "City,State,Country",
+                        Language = "en"
+                    };
+
+                    var accountSettings = new ServerAccountSettings
+                    {
+                        ImmichServerUrl = "http://mock-immich-server.com",
+                        ApiKey = "test-api-key"
+                    };
+
+                    var serverSettings = new ServerSettings
+                    {
+                        GeneralSettingsImpl = generalSettings,
+                        AccountsImpl = new List<ServerAccountSettings> { accountSettings }
+                    };
+
+                    services.AddSingleton(new BootstrapServerSettingsHolder(serverSettings));
+                    services.AddSingleton(new AdminManagedSettingsStoreOptions
+                    {
+                        StorePath = Path.Combine(tempAppDataPath, "admin-settings.json")
+                    });
+                    services.AddSingleton<IAdminBasicAuthService>(_ =>
+                        new AdminBasicAuthService(new Hashtable
+                        {
+                            ["IMMICHFRAME_AUTH_BASIC_ADMIN_USER"] = "admin",
+                            ["IMMICHFRAME_AUTH_BASIC_ADMIN_HASH"] =
+                                "{SHA}" + Convert.ToBase64String(System.Security.Cryptography.SHA1.HashData(System.Text.Encoding.UTF8.GetBytes("secret")))
+                        }));
+                    services.AddSingleton<IFrameSessionRegistry>(_ =>
+                        new FrameSessionRegistry(
+                            new FrameSessionRegistryOptions
+                            {
+                                DisplayNameStorePath = Path.Combine(tempAppDataPath, "frame-session-display-names.json")
+                            },
+                            null,
+                            null));
+                });
+            });
+    }
+
+    private static string GetRequiredHeaderValue(HttpResponseMessage response, string headerName)
+    {
+        if (response.Headers.TryGetValues(headerName, out var responseHeaderValues))
+        {
+            return responseHeaderValues.Single();
+        }
+
+        if (response.Content.Headers.TryGetValues(headerName, out var contentHeaderValues))
+        {
+            return contentHeaderValues.Single();
+        }
+
+        Assert.Fail($"Expected header '{headerName}' to be present.");
+        return string.Empty;
     }
 }
