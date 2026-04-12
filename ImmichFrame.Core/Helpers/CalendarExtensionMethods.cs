@@ -9,18 +9,22 @@ namespace ImmichFrame.WebApi.Helpers
     {
         public static IAppointment ToAppointment(this Occurrence occurrence, TimeZoneInfo targetTimeZone)
         {
-            if (occurrence.Source is CalendarEvent calendarEvent)
-            {
-                return calendarEvent.ToAppointment(targetTimeZone);
-            }
-
-            return new Appointment
+            var appointment = new Appointment
             {
                 StartTime = ConvertToTimeZone(occurrence.Period.StartTime, targetTimeZone),
                 Duration = occurrence.Period.Duration,
                 EndTime = ConvertToTimeZone(occurrence.Period.EndTime, targetTimeZone),
                 Location = string.Empty
             };
+
+            if (occurrence.Source is CalendarEvent calendarEvent)
+            {
+                appointment.Summary = calendarEvent.Summary;
+                appointment.Description = calendarEvent.Description;
+                appointment.Location = calendarEvent.Location;
+            }
+
+            return appointment;
         }
 
         public static IAppointment ToAppointment(this CalendarEvent calEvent, TimeZoneInfo targetTimeZone)
