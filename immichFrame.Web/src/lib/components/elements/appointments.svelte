@@ -36,6 +36,14 @@
 		return `${formatInCalendarTimeZone(startDate, clockFormat, timeZone)} - ${formatInCalendarTimeZone(endDate, clockFormat, timeZone)}`;
 	}
 
+	function truncateAppointmentTitle(summary: string | null | undefined) {
+		if (!summary) {
+			return '';
+		}
+
+		return summary.length > 100 ? `${summary.slice(0, 100)}...` : summary;
+	}
+
 	let appointments = $state<api.IAppointment[]>([]);
 	const resolvedStyle = $derived(
 		resolveWidgetStyle($configStore.calendarStyle, $configStore.style)
@@ -43,6 +51,7 @@
 	const resolvedPosition = $derived(
 		normalizeWidgetPosition($configStore.calendarPosition, 'top-right')
 	);
+	const alignRight = $derived(resolvedPosition.endsWith('right'));
 
 	$effect(() => {
 		if (!$configStore.showCalendar || ($configStore.webcalendars?.length ?? 0) === 0) {
@@ -73,7 +82,7 @@
 {#if $configStore.showCalendar && appointments.length > 0}
 	<div
 		id="appointments"
-		class="w-full max-w-sm text-primary text-shadow-sm"
+		class={`max-w-sm text-primary text-shadow-sm ${alignRight ? 'ml-auto w-3/4' : 'w-3/4'}`}
 	>
 		<div class="space-y-2">
 			{#each appointments as appointment}
@@ -86,7 +95,7 @@
 					<p class="appointment-date">
 						{formatTimeRange(appointment.startTime ?? '', appointment.endTime ?? '')}
 					</p>
-					{appointment.summary}
+					{truncateAppointmentTitle(appointment.summary)}
 					{#if appointment.description}
 						<p class="appointment-description font-light">{appointment.description}</p>
 					{/if}

@@ -130,6 +130,132 @@ public class IcalCalendarServiceTests
         });
     }
 
+    [Test]
+    public async Task GetAppointments_DoesNotIncludeUtcEventFromPreviousLocalDay()
+    {
+        var calendarTimeZone = TimeZoneInfo.FindSystemTimeZoneById("America/Edmonton");
+        var todayInTimeZone = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, calendarTimeZone);
+        var previousLocalStart = new DateTime(
+            todayInTimeZone.Year,
+            todayInTimeZone.Month,
+            todayInTimeZone.Day,
+            19,
+            30,
+            0,
+            DateTimeKind.Unspecified).AddDays(-1);
+        var previousLocalEnd = previousLocalStart.AddHours(1);
+        var utcStart = TimeZoneInfo.ConvertTimeToUtc(previousLocalStart, calendarTimeZone);
+        var utcEnd = TimeZoneInfo.ConvertTimeToUtc(previousLocalEnd, calendarTimeZone);
+
+        using var handler = new CaptureHttpMessageHandler((_, _) =>
+        {
+            var ics = $"""
+                       BEGIN:VCALENDAR
+                       VERSION:2.0
+                       PRODID:-//ImmichFrame.Tests//EN
+                       BEGIN:VEVENT
+                       UID:test-previous-local-day
+                       DTSTAMP:{utcStart:yyyyMMdd}T000000Z
+                       DTSTART:{utcStart:yyyyMMddTHHmmssZ}
+                       DTEND:{utcEnd:yyyyMMddTHHmmssZ}
+                       SUMMARY:Previous local day event
+                       END:VEVENT
+                       END:VCALENDAR
+                       """;
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(ics)
+            });
+        });
+
+        using var httpClient = new HttpClient(handler);
+        var httpClientFactory = new Mock<IHttpClientFactory>();
+        httpClientFactory.Setup(x => x.CreateClient(It.IsAny<string>())).Returns(httpClient);
+
+        var generalSettings = new Mock<IGeneralSettings>();
+        generalSettings.SetupGet(x => x.Webcalendars).Returns(["https://calendar.example.com/basic.ics"]);
+        generalSettings.SetupGet(x => x.CalendarTimeZone).Returns("America/Edmonton");
+
+        var serverSettings = new Mock<IServerSettings>();
+        serverSettings.SetupGet(x => x.GeneralSettings).Returns(generalSettings.Object);
+
+        var settingsProvider = new Mock<ISettingsSnapshotProvider>();
+        settingsProvider.Setup(x => x.GetCurrentSnapshot()).Returns(new SettingsSnapshot(1, serverSettings.Object));
+
+        var service = new IcalCalendarService(
+            settingsProvider.Object,
+            NullLogger<IcalCalendarService>.Instance,
+            httpClientFactory.Object);
+
+        var appointments = await service.GetAppointments();
+
+        Assert.That(appointments, Is.Empty);
+    }
+
+    [Test]
+    public async Task GetAppointments_UsesOccurrenceDateForRecurringEvents()
+    {
+        var calendarTimeZone = TimeZoneInfo.FindSystemTimeZoneById("America/Edmonton");
+        var todayInTimeZone = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, calendarTimeZone);
+        var localStart = new DateTime(todayInTimeZone.Year, todayInTimeZone.Month, todayInTimeZone.Day, 9, 0, 0, DateTimeKind.Unspecified);
+        var initialOccurrenceStart = localStart.AddDays(-1);
+        var initialOccurrenceEnd = initialOccurrenceStart.AddHours(1);
+
+        using var handler = new CaptureHttpMessageHandler((_, _) =>
+        {
+            var ics = $"""
+                       BEGIN:VCALENDAR
+                       VERSION:2.0
+                       PRODID:-//ImmichFrame.Tests//EN
+                       BEGIN:VEVENT
+                       UID:test-recurring-event
+                       DTSTAMP:{todayInTimeZone.UtcDateTime:yyyyMMdd}T000000Z
+                       DTSTART;TZID=America/Edmonton:{initialOccurrenceStart:yyyyMMddTHHmmss}
+                       DTEND;TZID=America/Edmonton:{initialOccurrenceEnd:yyyyMMddTHHmmss}
+                       RRULE:FREQ=DAILY;COUNT=2
+                       SUMMARY:Recurring event
+                       END:VEVENT
+                       END:VCALENDAR
+                       """;
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(ics)
+            });
+        });
+
+        using var httpClient = new HttpClient(handler);
+        var httpClientFactory = new Mock<IHttpClientFactory>();
+        httpClientFactory.Setup(x => x.CreateClient(It.IsAny<string>())).Returns(httpClient);
+
+        var generalSettings = new Mock<IGeneralSettings>();
+        generalSettings.SetupGet(x => x.Webcalendars).Returns(["https://calendar.example.com/basic.ics"]);
+        generalSettings.SetupGet(x => x.CalendarTimeZone).Returns("America/Edmonton");
+
+        var serverSettings = new Mock<IServerSettings>();
+        serverSettings.SetupGet(x => x.GeneralSettings).Returns(generalSettings.Object);
+
+        var settingsProvider = new Mock<ISettingsSnapshotProvider>();
+        settingsProvider.Setup(x => x.GetCurrentSnapshot()).Returns(new SettingsSnapshot(1, serverSettings.Object));
+
+        var service = new IcalCalendarService(
+            settingsProvider.Object,
+            NullLogger<IcalCalendarService>.Instance,
+            httpClientFactory.Object);
+
+        var appointments = await service.GetAppointments();
+
+        Assert.That(appointments, Has.Count.EqualTo(1));
+        Assert.Multiple(() =>
+        {
+            Assert.That(appointments[0].Summary, Is.EqualTo("Recurring event"));
+            Assert.That(appointments[0].StartTime.Hour, Is.EqualTo(9));
+            Assert.That(appointments[0].StartTime.Date, Is.EqualTo(localStart.Date));
+            Assert.That(appointments[0].EndTime.Hour, Is.EqualTo(10));
+        });
+    }
+
     private sealed class CaptureHttpMessageHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> handler)
         : HttpMessageHandler
     {

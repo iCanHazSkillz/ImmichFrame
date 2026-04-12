@@ -33,8 +33,12 @@ public class IcalCalendarService : ICalendarService
         {
             var appointments = new List<IAppointment>();
             var (windowStart, windowEnd) = GetTodayWindow(calendarTimeZone);
-            var windowStartCalDateTime = new CalDateTime(windowStart, calendarTimeZone.Id);
-            var windowEndCalDateTime = new CalDateTime(windowEnd, calendarTimeZone.Id);
+            var windowStartUtc = TimeZoneInfo.ConvertTimeToUtc(windowStart, calendarTimeZone);
+            var windowEndUtc = TimeZoneInfo.ConvertTimeToUtc(windowEnd, calendarTimeZone);
+            var windowStartCalDateTime = new CalDateTime(windowStartUtc, "UTC");
+            var windowEndCalDateTime = new CalDateTime(windowEndUtc, "UTC");
+            var windowStartBoundary = new DateTimeOffset(windowStartUtc, TimeSpan.Zero);
+            var windowEndBoundary = new DateTimeOffset(windowEndUtc, TimeSpan.Zero);
 
             List<(string? auth, string url)> cals = settings.Webcalendars.Select<string, (string? auth, string url)?>(x =>
             {
@@ -71,7 +75,8 @@ public class IcalCalendarService : ICalendarService
                 appointments.AddRange(
                     calendar
                         .GetOccurrences(windowStartCalDateTime, windowEndCalDateTime)
-                        .Select(occurrence => occurrence.ToAppointment(calendarTimeZone)));
+                        .Select(occurrence => occurrence.ToAppointment(calendarTimeZone))
+                        .Where(appointment => OverlapsWindow(appointment, windowStartBoundary, windowEndBoundary)));
             }
 
             return appointments;
@@ -148,5 +153,10 @@ public class IcalCalendarService : ICalendarService
         var now = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, calendarTimeZone);
         var start = new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Unspecified);
         return (start, start.AddDays(1));
+    }
+
+    private static bool OverlapsWindow(IAppointment appointment, DateTimeOffset windowStart, DateTimeOffset windowEnd)
+    {
+        return appointment.StartTime < windowEnd && appointment.EndTime > windowStart;
     }
 }
