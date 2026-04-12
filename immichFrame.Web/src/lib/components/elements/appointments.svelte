@@ -2,6 +2,7 @@
 	import * as api from '$lib/index';
 	import { isValid } from 'date-fns';
 	import { formatInTimeZone } from 'date-fns-tz';
+	import { onDestroy } from 'svelte';
 	import { configStore } from '$lib/stores/config.store';
 	import { clientIdentifierStore } from '$lib/stores/persist.store';
 	import {
@@ -44,7 +45,17 @@
 		return summary.length > 100 ? `${summary.slice(0, 100)}...` : summary;
 	}
 
+	function isTitleTruncated(summary: string | null | undefined) {
+		return (summary?.length ?? 0) > 100;
+	}
+
+	function getAppointmentKey(appointment: api.IAppointment, index: number) {
+		return `${appointment.startTime ?? 'no-start'}-${appointment.summary ?? 'no-summary'}-${index}`;
+	}
+
 	let appointments = $state<api.IAppointment[]>([]);
+	let expandedAppointmentKey = $state<string | null>(null);
+	let expandedAppointmentTimeout: ReturnType<typeof setTimeout> | null = null;
 	const resolvedStyle = $derived(
 		resolveWidgetStyle($configStore.calendarStyle, $configStore.style)
 	);
@@ -53,9 +64,49 @@
 	);
 	const alignRight = $derived(resolvedPosition.endsWith('right'));
 
+	function clearExpandedAppointmentTimeout() {
+		if (expandedAppointmentTimeout) {
+			clearTimeout(expandedAppointmentTimeout);
+			expandedAppointmentTimeout = null;
+		}
+	}
+
+	function expandAppointment(key: string) {
+		clearExpandedAppointmentTimeout();
+		expandedAppointmentKey = key;
+	}
+
+	function collapseAppointment(key: string) {
+		if (expandedAppointmentKey === key) {
+			expandedAppointmentKey = null;
+		}
+
+		clearExpandedAppointmentTimeout();
+	}
+
+	function handleAppointmentTap(key: string, summary: string | null | undefined) {
+		if (!isTitleTruncated(summary)) {
+			return;
+		}
+
+		expandAppointment(key);
+		expandedAppointmentTimeout = setTimeout(() => {
+			if (expandedAppointmentKey === key) {
+				expandedAppointmentKey = null;
+			}
+			expandedAppointmentTimeout = null;
+		}, 5000);
+	}
+
+	onDestroy(() => {
+		clearExpandedAppointmentTimeout();
+	});
+
 	$effect(() => {
 		if (!$configStore.showCalendar || ($configStore.webcalendars?.length ?? 0) === 0) {
 			appointments = [];
+			expandedAppointmentKey = null;
+			clearExpandedAppointmentTimeout();
 			return;
 		}
 
@@ -85,17 +136,29 @@
 		class={`max-w-sm text-primary text-shadow-sm ${alignRight ? 'ml-auto w-3/4' : 'w-3/4'}`}
 	>
 		<div class="space-y-2">
-			{#each appointments as appointment}
+			{#each appointments as appointment, index (getAppointmentKey(appointment, index))}
 				<div
-					class={`rounded-2xl p-3 text-left ${getWidgetSurfaceClass(
+					class={`cursor-pointer rounded-2xl p-3 text-left ${getWidgetSurfaceClass(
 						resolvedStyle,
 						resolvedPosition
 					)}`}
+					onmouseenter={() => {
+						if (isTitleTruncated(appointment.summary)) {
+							expandAppointment(getAppointmentKey(appointment, index));
+						}
+					}}
+					onmouseleave={() => collapseAppointment(getAppointmentKey(appointment, index))}
+					onclick={() =>
+						handleAppointmentTap(getAppointmentKey(appointment, index), appointment.summary)}
 				>
 					<p class="appointment-date">
 						{formatTimeRange(appointment.startTime ?? '', appointment.endTime ?? '')}
 					</p>
-					{truncateAppointmentTitle(appointment.summary)}
+					<p class="appointment-title">
+						{expandedAppointmentKey === getAppointmentKey(appointment, index)
+							? appointment.summary
+							: truncateAppointmentTitle(appointment.summary)}
+					</p>
 					{#if appointment.description}
 						<p class="appointment-description font-light">{appointment.description}</p>
 					{/if}
@@ -106,6 +169,7 @@
 {/if}
 
 <style>
+	.appointment-title,
 	.appointment-date,
 	.appointment-description {
 		font-size: 0.78em;
