@@ -109,6 +109,28 @@ public class AdminSettingsUpdateRequest
     }
 }
 
+public class AdminAlbumValidationRequest
+{
+    public string AccountIdentifier { get; set; } = string.Empty;
+    public List<Guid> Albums { get; set; } = [];
+    public List<Guid> ExcludedAlbums { get; set; } = [];
+}
+
+public class AdminAlbumValidationResponseDto
+{
+    public List<AdminAlbumValidationResultDto> Albums { get; set; } = [];
+    public List<AdminAlbumValidationResultDto> ExcludedAlbums { get; set; } = [];
+}
+
+public class AdminAlbumValidationResultDto
+{
+    public Guid AlbumId { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public int? StatusCode { get; set; }
+    public string? Message { get; set; }
+    public string? CorrelationId { get; set; }
+}
+
 public class AdminAccountSettingsDto : AdminManagedAccountSettings
 {
     public int AccountIndex { get; set; }

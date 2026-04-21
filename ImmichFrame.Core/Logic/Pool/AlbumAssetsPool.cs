@@ -1,12 +1,14 @@
 using ImmichFrame.Core.Api;
+using ImmichFrame.Core.Helpers;
 using ImmichFrame.Core.Interfaces;
+using Microsoft.Extensions.Logging;
 
 namespace ImmichFrame.Core.Logic.Pool;
 
 public class AlbumAssetsPool : CachingApiAssetsPool
 {
-    public AlbumAssetsPool(IApiCache apiCache, ImmichApi immichApi, IAccountSettings accountSettings)
-        : base(apiCache, immichApi, accountSettings)
+    public AlbumAssetsPool(IApiCache apiCache, ImmichApi immichApi, IAccountSettings accountSettings, ILogger<AlbumAssetsPool>? logger = null)
+        : base(apiCache, immichApi, accountSettings, logger)
     {
     }
 
@@ -19,8 +21,21 @@ public class AlbumAssetsPool : CachingApiAssetsPool
         {
             foreach (var albumId in albums)
             {
-                var albumInfo = await ImmichApi.GetAlbumInfoAsync(albumId, null, null, ct);
-                albumAssets.AddRange(albumInfo.Assets);
+                AlbumResponseDto albumInfo;
+                try
+                {
+                    albumInfo = await ImmichApi.GetAlbumInfoAsync(albumId, null, null, ct);
+                }
+                catch (ApiException ex) when (AssetHelper.IsExpectedAlbumLookupFailure(ex))
+                {
+                    AssetHelper.LogSkippedAlbum(Logger, albumId, AccountSettings.ImmichServerUrl, "included", ex);
+                    continue;
+                }
+
+                if (albumInfo.Assets != null)
+                {
+                    albumAssets.AddRange(albumInfo.Assets);
+                }
             }
         }
 

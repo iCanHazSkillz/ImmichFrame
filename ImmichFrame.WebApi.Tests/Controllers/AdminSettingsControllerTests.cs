@@ -7,6 +7,7 @@ using ImmichFrame.WebApi.Services;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Http;
 using NUnit.Framework;
 
 namespace ImmichFrame.WebApi.Tests.Controllers;
@@ -17,11 +18,13 @@ public class AdminSettingsControllerTests
     private const string TestImmichServerUrl = "http://mock-immich-server.com";
     private const string TestApiKey = "test-api-key";
     private WebApplicationFactory<Program> _factory = null!;
+    private Dictionary<Guid, (HttpStatusCode StatusCode, string Content)> _albumValidationResponses = null!;
     private string _tempAppDataPath = null!;
 
     [SetUp]
     public void Setup()
     {
+        _albumValidationResponses = [];
         _tempAppDataPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempAppDataPath);
 
@@ -30,6 +33,17 @@ public class AdminSettingsControllerTests
             {
                 builder.ConfigureTestServices(services =>
                 {
+                    services.AddSingleton<HttpMessageHandler>(_ => new AlbumValidationHttpMessageHandler(_albumValidationResponses));
+                    services.AddHttpClient("ImmichApiAccountClient")
+                        .ConfigurePrimaryHttpMessageHandler(sp => sp.GetRequiredService<HttpMessageHandler>());
+                    services.ConfigureAll<HttpClientFactoryOptions>(options =>
+                    {
+                        options.HttpMessageHandlerBuilderActions.Add(builder =>
+                        {
+                            builder.PrimaryHandler = builder.Services.GetRequiredService<HttpMessageHandler>();
+                        });
+                    });
+
                     var generalSettings = new GeneralSettings
                     {
                         AuthenticationSecret = "test-secret",
@@ -763,6 +777,17 @@ public class AdminSettingsControllerTests
             {
                 builder.ConfigureTestServices(services =>
                 {
+                    services.AddSingleton<HttpMessageHandler>(_ => new AlbumValidationHttpMessageHandler(_albumValidationResponses));
+                    services.AddHttpClient("ImmichApiAccountClient")
+                        .ConfigurePrimaryHttpMessageHandler(sp => sp.GetRequiredService<HttpMessageHandler>());
+                    services.ConfigureAll<HttpClientFactoryOptions>(options =>
+                    {
+                        options.HttpMessageHandlerBuilderActions.Add(builder =>
+                        {
+                            builder.PrimaryHandler = builder.Services.GetRequiredService<HttpMessageHandler>();
+                        });
+                    });
+
                     var generalSettings = new GeneralSettings
                     {
                         AuthenticationSecret = "test-secret",
@@ -947,6 +972,83 @@ public class AdminSettingsControllerTests
     }
 
     [Test]
+    public async Task ValidateAlbums_ReturnsPerListStatuses()
+    {
+        var validAlbumId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var missingAlbumId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var errorAlbumId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+
+        SetupAlbumValidationResponse(validAlbumId, HttpStatusCode.OK, CreateValidAlbumJson(validAlbumId));
+        SetupAlbumValidationResponse(
+            missingAlbumId,
+            HttpStatusCode.BadRequest,
+            """{"message":"Not found or no album.read access","error":"Bad Request","statusCode":400,"correlationId":"missing-correlation"}""");
+        SetupAlbumValidationResponse(
+            errorAlbumId,
+            HttpStatusCode.InternalServerError,
+            """{"message":"Immich is unavailable","statusCode":500}""");
+
+        var adminClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var response = await adminClient.PostAsJsonAsync("/api/admin/settings/albums/validate", new AdminAlbumValidationRequest
+        {
+            AccountIdentifier = CreateAccountIdentifier(),
+            Albums = [validAlbumId, missingAlbumId],
+            ExcludedAlbums = [errorAlbumId]
+        });
+
+        response.EnsureSuccessStatusCode();
+        var validation = await response.Content.ReadFromJsonAsync<AdminAlbumValidationResponseDto>();
+
+        Assert.That(validation, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(validation!.Albums.Single(result => result.AlbumId == validAlbumId).Status, Is.EqualTo("valid"));
+            var missing = validation.Albums.Single(result => result.AlbumId == missingAlbumId);
+            Assert.That(missing.Status, Is.EqualTo("notFoundOrNoAccess"));
+            Assert.That(missing.StatusCode, Is.EqualTo(400));
+            Assert.That(missing.CorrelationId, Is.EqualTo("missing-correlation"));
+            var error = validation.ExcludedAlbums.Single(result => result.AlbumId == errorAlbumId);
+            Assert.That(error.Status, Is.EqualTo("error"));
+            Assert.That(error.StatusCode, Is.EqualTo(500));
+        });
+    }
+
+    [Test]
+    public async Task ValidateAlbums_ReturnsBadRequestForUnknownAccountIdentifier()
+    {
+        var adminClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var response = await adminClient.PostAsJsonAsync("/api/admin/settings/albums/validate", new AdminAlbumValidationRequest
+        {
+            AccountIdentifier = "unknown",
+            Albums = [Guid.NewGuid()]
+        });
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+    }
+
+    [Test]
+    public async Task ValidateAlbums_RequiresAdminAuthentication()
+    {
+        var response = await _factory.CreateClient().PostAsJsonAsync("/api/admin/settings/albums/validate", new AdminAlbumValidationRequest
+        {
+            AccountIdentifier = CreateAccountIdentifier(),
+            Albums = [Guid.NewGuid()]
+        });
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+    }
+
+    [Test]
     public async Task Update_ReturnsBadRequest_WhenCustomCssIsInvalid_AndKeepsPreviousStylesheet()
     {
         const string validCustomCss = "#progressbar { visibility: hidden; }";
@@ -983,6 +1085,63 @@ public class AdminSettingsControllerTests
         });
 
         Assert.That(loginResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK), await loginResponse.Content.ReadAsStringAsync());
+    }
+
+    private void SetupAlbumValidationResponse(Guid albumId, HttpStatusCode statusCode, string content)
+    {
+        _albumValidationResponses[albumId] = (statusCode, content);
+    }
+
+    private static string CreateValidAlbumJson(Guid albumId)
+    {
+        return $$"""
+        {
+          "albumName": "Valid album",
+          "albumThumbnailAssetId": null,
+          "albumUsers": [],
+          "assetCount": 0,
+          "assets": [],
+          "createdAt": "2026-04-21T00:00:00Z",
+          "description": "",
+          "hasSharedLink": false,
+          "id": "{{albumId}}",
+          "isActivityEnabled": true,
+          "owner": {
+            "avatarColor": "primary",
+            "email": "user@example.com",
+            "id": "user-id",
+            "name": "User",
+            "profileChangedAt": "2026-04-21T00:00:00Z",
+            "profileImagePath": ""
+          },
+          "ownerId": "user-id",
+          "shared": false,
+          "updatedAt": "2026-04-21T00:00:00Z"
+        }
+        """;
+    }
+
+    private sealed class AlbumValidationHttpMessageHandler(
+        IReadOnlyDictionary<Guid, (HttpStatusCode StatusCode, string Content)> responses) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var albumIdText = request.RequestUri?.Segments.LastOrDefault()?.TrimEnd('/');
+            if (Guid.TryParse(albumIdText, out var albumId) && responses.TryGetValue(albumId, out var response))
+            {
+                return Task.FromResult(new HttpResponseMessage
+                {
+                    StatusCode = response.StatusCode,
+                    Content = new StringContent(response.Content)
+                });
+            }
+
+            return Task.FromResult(new HttpResponseMessage
+            {
+                StatusCode = HttpStatusCode.NotFound,
+                Content = new StringContent("""{"message":"Unhandled test album request"}""")
+            });
+        }
     }
 
     private static string CreateAccountIdentifier()

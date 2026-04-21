@@ -1,10 +1,11 @@
 using ImmichFrame.Core.Api;
 using ImmichFrame.Core.Helpers;
 using ImmichFrame.Core.Interfaces;
+using Microsoft.Extensions.Logging;
 
 namespace ImmichFrame.Core.Logic.Pool;
 
-public class AllAssetsPool(IApiCache apiCache, ImmichApi immichApi, IAccountSettings accountSettings) : IAssetPool
+public class AllAssetsPool(IApiCache apiCache, ImmichApi immichApi, IAccountSettings accountSettings, ILogger<AllAssetsPool>? logger = null) : IAssetPool
 {
     public async Task<long> GetAssetCount(CancellationToken ct = default)
     {
@@ -63,7 +64,7 @@ public class AllAssetsPool(IApiCache apiCache, ImmichApi immichApi, IAccountSett
         var assets = await immichApi.SearchRandomAsync(searchDto, ct);
         var excludedAlbumAssets = await apiCache.GetOrAddAsync(
             $"{nameof(AllAssetsPool)}_ExcludedAlbums",
-            () => AssetHelper.GetExcludedAlbumAssets(immichApi, accountSettings, ct));
+            () => AssetHelper.GetExcludedAlbumAssets(immichApi, accountSettings, logger, ct));
 
         return assets.ApplyAccountFilters(accountSettings, excludedAlbumAssets);
     }
