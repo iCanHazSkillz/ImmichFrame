@@ -2,6 +2,7 @@ using ImmichFrame.WebApi.Models;
 using ImmichFrame.WebApi.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ImmichFrame.Core.Api;
 using ImmichFrame.Core.Helpers;
 
 namespace ImmichFrame.WebApi.Controllers;
@@ -15,6 +16,7 @@ public class AdminSettingsController : ControllerBase
     private readonly BootstrapServerSettingsHolder _bootstrapSettingsHolder;
     private readonly ICustomCssValidator _customCssValidator;
     private readonly IFrameSessionRegistry _frameSessionRegistry;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<AdminSettingsController> _logger;
 
     public AdminSettingsController(
@@ -22,12 +24,14 @@ public class AdminSettingsController : ControllerBase
         BootstrapServerSettingsHolder bootstrapSettingsHolder,
         ICustomCssValidator customCssValidator,
         IFrameSessionRegistry frameSessionRegistry,
+        IHttpClientFactory httpClientFactory,
         ILogger<AdminSettingsController> logger)
     {
         _settingsProvider = settingsProvider;
         _bootstrapSettingsHolder = bootstrapSettingsHolder;
         _customCssValidator = customCssValidator;
         _frameSessionRegistry = frameSessionRegistry;
+        _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
 
@@ -43,6 +47,41 @@ public class AdminSettingsController : ControllerBase
             !string.IsNullOrWhiteSpace(snapshot.Settings.GeneralSettings.WeatherApiKey),
             TimeZoneSettingsHelper.ResolveServerTimeZoneId(),
             TimeZoneSettingsHelper.GetAvailableTimeZoneIds().ToList()));
+    }
+
+    [HttpPost("albums/validate")]
+    public async Task<ActionResult<AdminAlbumValidationResponseDto>> ValidateAlbums([FromBody] AdminAlbumValidationRequest request, CancellationToken ct)
+    {
+        request ??= new AdminAlbumValidationRequest();
+        var accountIdentifier = request.AccountIdentifier?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(accountIdentifier))
+        {
+            ModelState.AddModelError(nameof(request.AccountIdentifier), "Account identifier is required.");
+            return ValidationProblem(ModelState);
+        }
+
+        var snapshot = _settingsProvider.GetCurrentSnapshot();
+        var account = snapshot.Settings.Accounts
+            .FirstOrDefault(account => string.Equals(
+                ServerSettingsFactory.GetAccountIdentifier(account),
+                accountIdentifier,
+                StringComparison.Ordinal));
+
+        if (account == null)
+        {
+            ModelState.AddModelError(nameof(request.AccountIdentifier), "Account identifier was not found.");
+            return ValidationProblem(ModelState);
+        }
+
+        var httpClient = _httpClientFactory.CreateClient("ImmichApiAccountClient");
+        httpClient.UseApiKey(account.ApiKey);
+        var immichApi = new ImmichApi(account.ImmichServerUrl, httpClient);
+
+        return Ok(new AdminAlbumValidationResponseDto
+        {
+            Albums = await ValidateAlbumList(immichApi, request.Albums, ct),
+            ExcludedAlbums = await ValidateAlbumList(immichApi, request.ExcludedAlbums, ct)
+        });
     }
 
     [HttpPut]
@@ -111,5 +150,70 @@ public class AdminSettingsController : ControllerBase
             !string.IsNullOrWhiteSpace(snapshot.Settings.GeneralSettings.WeatherApiKey),
             TimeZoneSettingsHelper.ResolveServerTimeZoneId(),
             TimeZoneSettingsHelper.GetAvailableTimeZoneIds().ToList()));
+    }
+
+    private static async Task<List<AdminAlbumValidationResultDto>> ValidateAlbumList(
+        ImmichApi immichApi,
+        IEnumerable<Guid>? albumIds,
+        CancellationToken ct)
+    {
+        var results = new List<AdminAlbumValidationResultDto>();
+        foreach (var albumId in albumIds ?? [])
+        {
+            results.Add(await ValidateAlbum(immichApi, albumId, ct));
+        }
+
+        return results;
+    }
+
+    private static async Task<AdminAlbumValidationResultDto> ValidateAlbum(
+        ImmichApi immichApi,
+        Guid albumId,
+        CancellationToken ct)
+    {
+        try
+        {
+            await immichApi.GetAlbumInfoAsync(albumId, null, true, ct);
+            return new AdminAlbumValidationResultDto
+            {
+                AlbumId = albumId,
+                Status = "valid"
+            };
+        }
+        catch (ApiException ex) when (AssetHelper.IsExpectedAlbumLookupFailure(ex))
+        {
+            return new AdminAlbumValidationResultDto
+            {
+                AlbumId = albumId,
+                Status = "notFoundOrNoAccess",
+                StatusCode = ex.StatusCode,
+                Message = ex.Response,
+                CorrelationId = AssetHelper.TryGetCorrelationId(ex.Response)
+            };
+        }
+        catch (ApiException ex)
+        {
+            return new AdminAlbumValidationResultDto
+            {
+                AlbumId = albumId,
+                Status = "error",
+                StatusCode = ex.StatusCode,
+                Message = ex.Response,
+                CorrelationId = AssetHelper.TryGetCorrelationId(ex.Response)
+            };
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new AdminAlbumValidationResultDto
+            {
+                AlbumId = albumId,
+                Status = "error",
+                Message = ex.Message
+            };
+        }
     }
 }

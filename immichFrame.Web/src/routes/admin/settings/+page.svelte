@@ -12,6 +12,8 @@
 		getAdminAuthSession,
 		getAdminSettings,
 		logoutAdmin,
+		validateAdminAlbums,
+		type AdminAlbumValidationResultDto,
 		type AdminAuthSessionDto,
 		type AdminManagedAccountSettings,
 		type AdminManagedGeneralSettings,
@@ -35,6 +37,15 @@
 
 	const UUID_PATTERN =
 		/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+	type AlbumListKey = 'albums' | 'excludedAlbums';
+	type AlbumTokenStatus = {
+		status: 'valid' | 'notFoundOrNoAccess' | 'error' | 'pending';
+		label: string;
+		message?: string | null;
+		statusCode?: number | null;
+	};
+	type AccountAlbumValidationState = Record<AlbumListKey, Record<string, AlbumTokenStatus>>;
 
 	const clockFormatOptions = [
 		{ value: 'hh:mm', label: '12-hour, leading zero', hint: 'Example: 08:30' },
@@ -253,6 +264,10 @@
 	let weatherApiKeyFieldError = $state('');
 	let webcalendarsFieldError = $state('');
 	let pendingGeneralNumberInputs = $state<Partial<Record<RequiredGeneralNumberField, string>>>({});
+	let albumValidationState = $state<Record<string, AccountAlbumValidationState>>({});
+	let albumValidationPending = $state<Record<string, boolean>>({});
+	let albumValidationGeneration = $state<Record<string, number>>({});
+	let albumValidationTimer: ReturnType<typeof setTimeout> | null = null;
 
 	const serializedDraft = $derived(draft ? serializeEditableSettings(draft) : '');
 	const trimmedWeatherApiKeyInput = $derived(weatherApiKeyInput.trim());
@@ -456,6 +471,172 @@
 		return value.trim().toLowerCase();
 	}
 
+	function emptyAlbumValidationState(): AccountAlbumValidationState {
+		return {
+			albums: {},
+			excludedAlbums: {}
+		};
+	}
+
+	function getAlbumTokenStatuses(accountIdentifier: string, listKey: AlbumListKey) {
+		return albumValidationState[accountIdentifier]?.[listKey] ?? {};
+	}
+
+	function hasAlbumValidationPending(accountIdentifier: string) {
+		return albumValidationPending[accountIdentifier] ?? false;
+	}
+
+	function nextAlbumValidationGeneration(accountIdentifier: string) {
+		const generation = (albumValidationGeneration[accountIdentifier] ?? 0) + 1;
+		albumValidationGeneration = {
+			...albumValidationGeneration,
+			[accountIdentifier]: generation
+		};
+		return generation;
+	}
+
+	function isCurrentAlbumValidation(accountIdentifier: string, generation: number) {
+		return albumValidationGeneration[accountIdentifier] === generation;
+	}
+
+	function albumValidationStatusFromResult(
+		result: AdminAlbumValidationResultDto
+	): AlbumTokenStatus {
+		if (result.status === 'valid') {
+			return {
+				status: 'valid',
+				label: 'Valid'
+			};
+		}
+
+		if (result.status === 'notFoundOrNoAccess') {
+			return {
+				status: 'notFoundOrNoAccess',
+				label: result.statusCode ? `${result.statusCode}` : 'Failed',
+				message: result.message,
+				statusCode: result.statusCode
+			};
+		}
+
+		return {
+			status: 'error',
+			label: result.statusCode ? `Error ${result.statusCode}` : 'Error',
+			message: result.message,
+			statusCode: result.statusCode
+		};
+	}
+
+	function mapAlbumValidationResults(results: AdminAlbumValidationResultDto[]) {
+		return Object.fromEntries(
+			results.map((result) => [normalizeUuid(result.albumId), albumValidationStatusFromResult(result)])
+		);
+	}
+
+	function markAlbumValidationFailed(account: AdminManagedAccountSettings, message: string) {
+		const toErrorMap = (values: string[]) =>
+			Object.fromEntries(
+				values.map((value) => [
+					normalizeUuid(value),
+					{
+						status: 'error',
+						label: 'Error',
+						message
+					} satisfies AlbumTokenStatus
+				])
+			);
+
+		albumValidationState = {
+			...albumValidationState,
+			[account.accountIdentifier]: {
+				albums: toErrorMap(account.albums),
+				excludedAlbums: toErrorMap(account.excludedAlbums)
+			}
+		};
+	}
+
+	async function validateAccountAlbums(account: AdminManagedAccountSettings) {
+		const accountIdentifier = account.accountIdentifier;
+		const validationGeneration = nextAlbumValidationGeneration(accountIdentifier);
+		const albums = account.albums.filter(isUuid).map(normalizeUuid);
+		const excludedAlbums = account.excludedAlbums.filter(isUuid).map(normalizeUuid);
+
+		if (albums.length === 0 && excludedAlbums.length === 0) {
+			albumValidationState = {
+				...albumValidationState,
+				[accountIdentifier]: emptyAlbumValidationState()
+			};
+			albumValidationPending = {
+				...albumValidationPending,
+				[accountIdentifier]: false
+			};
+			return;
+		}
+
+		albumValidationPending = {
+			...albumValidationPending,
+			[accountIdentifier]: true
+		};
+
+		try {
+			const result = await validateAdminAlbums({
+				accountIdentifier,
+				albums,
+				excludedAlbums
+			});
+
+			if (!isCurrentAlbumValidation(accountIdentifier, validationGeneration)) {
+				return;
+			}
+
+			albumValidationState = {
+				...albumValidationState,
+				[accountIdentifier]: {
+					albums: mapAlbumValidationResults(result.albums),
+					excludedAlbums: mapAlbumValidationResults(result.excludedAlbums)
+				}
+			};
+		} catch (error) {
+			if (!isCurrentAlbumValidation(accountIdentifier, validationGeneration)) {
+				return;
+			}
+
+			console.warn('Failed to validate album UUIDs:', error);
+			markAlbumValidationFailed(account, 'Album validation failed. Try again in a moment.');
+		} finally {
+			if (!isCurrentAlbumValidation(accountIdentifier, validationGeneration)) {
+				return;
+			}
+
+			albumValidationPending = {
+				...albumValidationPending,
+				[accountIdentifier]: false
+			};
+		}
+	}
+
+	async function validateAllAlbumLists() {
+		if (!draft || !adminSession?.isAuthenticated) {
+			return;
+		}
+
+		await Promise.all(draft.accounts.map((account) => validateAccountAlbums(account)));
+	}
+
+	function scheduleAlbumValidation() {
+		if (albumValidationTimer) {
+			clearTimeout(albumValidationTimer);
+		}
+
+		albumValidationTimer = setTimeout(() => {
+			void validateAllAlbumLists();
+		}, 500);
+	}
+
+	function handleAlbumValuesChanged() {
+		saveErrorMessage = '';
+		scheduleAlbumValidation();
+	}
+
 	function updateGeneral<K extends keyof AdminManagedGeneralSettings>(
 		key: K,
 		value: AdminManagedGeneralSettings[K]
@@ -599,6 +780,7 @@
 			pageLoading = true;
 			const settings = await getAdminSettings();
 			applyLoadedSettings(settings);
+			scheduleAlbumValidation();
 		} catch (error) {
 			console.warn('Failed to initialize admin settings page:', error);
 			fatalErrorMessage =
@@ -656,6 +838,7 @@
 			});
 
 			applyLoadedSettings(updated);
+			scheduleAlbumValidation();
 			saveSuccessMessage =
 				'Settings saved. Active frames were asked to refresh so they can pull the latest runtime configuration.';
 		} catch (error) {
@@ -757,6 +940,9 @@
 
 		return () => {
 			window.removeEventListener('beforeunload', handleBeforeUnload);
+			if (albumValidationTimer) {
+				clearTimeout(albumValidationTimer);
+			}
 		};
 	});
 </script>
@@ -1202,7 +1388,13 @@
 												validator={isUuid}
 												invalidMessage="Album values must be valid UUIDs."
 												normalize={normalizeUuid}
+												tokenStatuses={getAlbumTokenStatuses(account.accountIdentifier, 'albums')}
+												enableSelection={true}
+												onValuesChanged={handleAlbumValuesChanged}
 											/>
+											{#if hasAlbumValidationPending(account.accountIdentifier)}
+												<p class="text-xs text-stone-400">Checking album UUIDs...</p>
+											{/if}
 										</div>
 
 										<div class="space-y-2">
@@ -1221,7 +1413,16 @@
 												validator={isUuid}
 												invalidMessage="Excluded album values must be valid UUIDs."
 												normalize={normalizeUuid}
+												tokenStatuses={getAlbumTokenStatuses(
+													account.accountIdentifier,
+													'excludedAlbums'
+												)}
+												enableSelection={true}
+												onValuesChanged={handleAlbumValuesChanged}
 											/>
+											{#if hasAlbumValidationPending(account.accountIdentifier)}
+												<p class="text-xs text-stone-400">Checking excluded album UUIDs...</p>
+											{/if}
 										</div>
 
 										<div class="space-y-2">

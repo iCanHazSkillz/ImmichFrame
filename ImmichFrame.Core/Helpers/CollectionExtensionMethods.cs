@@ -26,6 +26,10 @@ public static class CollectionExtensionMethods
                 .ToList());
 
         var totalCount = sourcesAndCounts.Sum(source => source.Count);
+        if (totalCount <= 0)
+        {
+            return default;
+        }
 
         var randomIndex = _random.NextInt64(totalCount);
 

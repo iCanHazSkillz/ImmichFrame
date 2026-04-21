@@ -66,6 +66,12 @@ public class TotalAccountImagesSelectionStrategy(ILogger<TotalAccountImagesSelec
         }
 
         var proportions = await GetProportions(_accounts);
+        if (proportions.Count == 0 || proportions.All(proportion => proportion <= 0 || double.IsNaN(proportion)))
+        {
+            _logger.LogDebug("No assets are available across configured accounts");
+            return [];
+        }
+
         var maxAccount = proportions.Max();
         var adjustedProportions = proportions.Select(x => x / maxAccount).ToList();
         var assetLists = _accounts.Select(account => account.GetAssets()).ToList();

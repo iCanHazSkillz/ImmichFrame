@@ -1,12 +1,13 @@
 using ImmichFrame.Core.Api;
 using ImmichFrame.Core.Interfaces;
+using Microsoft.Extensions.Logging;
 
 namespace ImmichFrame.Core.Logic.Pool;
 
 public class TagAssetsPool : CachingApiAssetsPool
 {
-    public TagAssetsPool(IApiCache apiCache, ImmichApi immichApi, IAccountSettings accountSettings)
-        : base(apiCache, immichApi, accountSettings)
+    public TagAssetsPool(IApiCache apiCache, ImmichApi immichApi, IAccountSettings accountSettings, ILogger<TagAssetsPool>? logger = null)
+        : base(apiCache, immichApi, accountSettings, logger)
     {
     }
 

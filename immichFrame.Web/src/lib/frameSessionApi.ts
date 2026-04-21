@@ -147,6 +147,21 @@ export interface AdminSettingsResponseDto {
 	bootstrapManagedFields: string[];
 }
 
+export type AdminAlbumValidationStatus = 'valid' | 'notFoundOrNoAccess' | 'error';
+
+export interface AdminAlbumValidationResultDto {
+	albumId: string;
+	status: AdminAlbumValidationStatus;
+	statusCode?: number | null;
+	message?: string | null;
+	correlationId?: string | null;
+}
+
+export interface AdminAlbumValidationResponseDto {
+	albums: AdminAlbumValidationResultDto[];
+	excludedAlbums: AdminAlbumValidationResultDto[];
+}
+
 export class FrameSessionApiError extends Error {
 	status: number;
 
@@ -394,4 +409,20 @@ export async function updateAdminSettings(settings: {
 
 	throwIfNotOk(response, `Failed to update admin settings: ${response.status}`);
 	return readJson<AdminSettingsResponseDto>(response);
+}
+
+export async function validateAdminAlbums(request: {
+	accountIdentifier: string;
+	albums: string[];
+	excludedAlbums: string[];
+}) {
+	const response = await fetch('/api/admin/settings/albums/validate', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		credentials: 'same-origin',
+		body: JSON.stringify(request)
+	});
+
+	throwIfNotOk(response, `Failed to validate album settings: ${response.status}`);
+	return readJson<AdminAlbumValidationResponseDto>(response);
 }
