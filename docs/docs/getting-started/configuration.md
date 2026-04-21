@@ -61,6 +61,12 @@ General:
   # e.g. https://user:pass@calendar.immichframe.dev/dav/calendars/basic.ics
   Webcalendars:  # string[]
     - UUID
+  # Additional days after today to include in the calendar widget. 0 means today only.
+  CalendarLookaheadDays: 0  # int, 0-7
+  # Maximum number of current/future calendar events returned to the widget.
+  CalendarMaxEvents: 5  # int, 1-10
+  # Calendar event ordering.
+  CalendarSortDirection: 'ascending'  # ascending | descending
   # Interval in hours. Determines how often images are pulled from a person in immich.
   RefreshAlbumPeopleInterval: 12  # int
   # Date format. See https://date-fns.org/v4.1.0/docs/format for more information.
@@ -187,6 +193,8 @@ Calendar supports basic authentication using the standard URL userinfo format:
 Example:
 No Auth: `https://calendar.google.com/calendar/ical/XXXXXX/public/basic.ics`
 With Auth: `https://username:password@calendar.immichframe.dev/dav/calendars/basic.ics`
+
+By default the calendar shows today's current and future events only. Set `CalendarLookaheadDays` to include additional days after today, up to 7. `CalendarMaxEvents` limits how many events are sent to the widget at once, up to 10. Use `CalendarSortDirection` to choose `ascending` or `descending` event order.
 
 ### Misc
 #### Webhook

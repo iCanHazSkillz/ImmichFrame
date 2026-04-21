@@ -36,6 +36,9 @@ public class ClientSettingsDto
     public string? MetadataFontSize { get; set; }
     public string? CalendarTimeZone { get; set; }
     public string? CalendarDateFormat { get; set; }
+    public int CalendarLookaheadDays { get; set; }
+    public int CalendarMaxEvents { get; set; }
+    public string CalendarSortDirection { get; set; } = CalendarSettingsLimits.DefaultSortDirection;
     public string? ClockStyle { get; set; }
     public string? WeatherStyle { get; set; }
     public string? CalendarStyle { get; set; }
@@ -90,6 +93,9 @@ public class ClientSettingsDto
         dto.MetadataFontSize = generalSettings.MetadataFontSize;
         dto.CalendarTimeZone = TimeZoneSettingsHelper.ResolveCalendarTimeZoneId(generalSettings.CalendarTimeZone);
         dto.CalendarDateFormat = generalSettings.CalendarDateFormat;
+        dto.CalendarLookaheadDays = CalendarSettingsLimits.NormalizeLookaheadDays(generalSettings.CalendarLookaheadDays);
+        dto.CalendarMaxEvents = CalendarSettingsLimits.NormalizeMaxEvents(generalSettings.CalendarMaxEvents);
+        dto.CalendarSortDirection = CalendarSettingsLimits.NormalizeSortDirection(generalSettings.CalendarSortDirection);
         dto.ClockStyle = generalSettings.ClockStyle;
         dto.WeatherStyle = generalSettings.WeatherStyle;
         dto.CalendarStyle = generalSettings.CalendarStyle;

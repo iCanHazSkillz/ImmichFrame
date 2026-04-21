@@ -65,6 +65,9 @@ public class AdminManagedGeneralSettings
     public string? MetadataFontSize { get; set; }
     public string? CalendarTimeZone { get; set; }
     public string? CalendarDateFormat { get; set; }
+    public int CalendarLookaheadDays { get; set; } = CalendarSettingsLimits.DefaultLookaheadDays;
+    public int CalendarMaxEvents { get; set; } = CalendarSettingsLimits.DefaultMaxEvents;
+    public string CalendarSortDirection { get; set; } = CalendarSettingsLimits.DefaultSortDirection;
     public string? ClockStyle { get; set; }
     public string? WeatherStyle { get; set; }
     public string? CalendarStyle { get; set; }
@@ -99,6 +102,9 @@ public class AdminManagedGeneralSettings
         CalendarDateFormat = string.IsNullOrWhiteSpace(CalendarDateFormat)
             ? null
             : CalendarDateFormat.Trim();
+        CalendarLookaheadDays = CalendarSettingsLimits.NormalizeLookaheadDays(CalendarLookaheadDays);
+        CalendarMaxEvents = CalendarSettingsLimits.NormalizeMaxEvents(CalendarMaxEvents);
+        CalendarSortDirection = CalendarSettingsLimits.NormalizeSortDirection(CalendarSortDirection);
         if (!ShowPeopleDesc)
         {
             ShowPeopleAge = false;
@@ -164,6 +170,9 @@ public class AdminManagedGeneralSettings
         settings.MetadataFontSize = MetadataFontSize;
         settings.CalendarTimeZone = CalendarTimeZone;
         settings.CalendarDateFormat = CalendarDateFormat;
+        settings.CalendarLookaheadDays = CalendarLookaheadDays;
+        settings.CalendarMaxEvents = CalendarMaxEvents;
+        settings.CalendarSortDirection = CalendarSortDirection;
         settings.ClockStyle = ClockStyle;
         settings.WeatherStyle = WeatherStyle;
         settings.CalendarStyle = CalendarStyle;
@@ -225,6 +234,9 @@ public class AdminManagedGeneralSettings
             MetadataFontSize = settings.MetadataFontSize,
             CalendarTimeZone = settings.CalendarTimeZone,
             CalendarDateFormat = settings.CalendarDateFormat,
+            CalendarLookaheadDays = settings.CalendarLookaheadDays,
+            CalendarMaxEvents = settings.CalendarMaxEvents,
+            CalendarSortDirection = settings.CalendarSortDirection,
             ClockStyle = settings.ClockStyle,
             WeatherStyle = settings.WeatherStyle,
             CalendarStyle = settings.CalendarStyle,

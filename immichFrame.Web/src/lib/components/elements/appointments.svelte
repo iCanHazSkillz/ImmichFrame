@@ -25,6 +25,10 @@
 		}
 	}
 
+	function getCalendarDayKey(date: Date, timeZone: string) {
+		return formatInCalendarTimeZone(date, 'yyyy-MM-dd', timeZone);
+	}
+
 	function formatTimeRange(startTime: string, endTime: string) {
 		const startDate = new Date(startTime);
 		const endDate = new Date(endTime);
@@ -35,6 +39,29 @@
 		const timeZone = getCalendarTimeZone();
 		const clockFormat = $configStore.clockFormat ?? 'HH:mm';
 		return `${formatInCalendarTimeZone(startDate, clockFormat, timeZone)} - ${formatInCalendarTimeZone(endDate, clockFormat, timeZone)}`;
+	}
+
+	function formatDayHeader(startTime: string) {
+		const startDate = new Date(startTime);
+		if (!isValid(startDate)) {
+			return 'Undated';
+		}
+
+		const timeZone = getCalendarTimeZone();
+		const today = new Date();
+		const tomorrow = new Date(today);
+		tomorrow.setDate(today.getDate() + 1);
+		const eventDayKey = getCalendarDayKey(startDate, timeZone);
+
+		if (eventDayKey === getCalendarDayKey(today, timeZone)) {
+			return 'Today';
+		}
+
+		if (eventDayKey === getCalendarDayKey(tomorrow, timeZone)) {
+			return 'Tomorrow';
+		}
+
+		return formatInCalendarTimeZone(startDate, 'EEEE, MMM d', timeZone);
 	}
 
 	function truncateAppointmentTitle(summary: string | null | undefined) {
@@ -56,6 +83,22 @@
 	let appointments = $state<api.IAppointment[]>([]);
 	let expandedAppointmentKey = $state<string | null>(null);
 	let expandedAppointmentTimeout: ReturnType<typeof setTimeout> | null = null;
+	const groupedAppointments = $derived.by(() => {
+		const groups: Array<{ day: string; appointments: api.IAppointment[] }> = [];
+
+		for (const appointment of appointments) {
+			const day = formatDayHeader(appointment.startTime ?? '');
+			const currentGroup = groups.at(-1);
+			if (currentGroup?.day === day) {
+				currentGroup.appointments.push(appointment);
+				continue;
+			}
+
+			groups.push({ day, appointments: [appointment] });
+		}
+
+		return groups;
+	});
 	const resolvedStyle = $derived(
 		resolveWidgetStyle($configStore.calendarStyle, $configStore.style)
 	);
@@ -123,9 +166,7 @@
 			clientIdentifier: $clientIdentifierStore
 		});
 		if (appointmentRequest.status == 200) {
-			appointments = appointmentRequest.data.sort((a, b) => {
-				return new Date(a.startTime ?? '').getTime() - new Date(b.startTime ?? '').getTime();
-			});
+			appointments = appointmentRequest.data;
 		}
 	}
 </script>
@@ -136,32 +177,37 @@
 		class={`max-w-sm text-primary text-shadow-sm ${alignRight ? 'ml-auto w-3/4' : 'w-3/4'}`}
 	>
 		<div class="space-y-2">
-			{#each appointments as appointment, index (getAppointmentKey(appointment, index))}
-				<div
-					class={`cursor-pointer rounded-2xl p-3 text-left ${getWidgetSurfaceClass(
-						resolvedStyle,
-						resolvedPosition
-					)}`}
-					onmouseenter={() => {
-						if (isTitleTruncated(appointment.summary)) {
-							expandAppointment(getAppointmentKey(appointment, index));
-						}
-					}}
-					onmouseleave={() => collapseAppointment(getAppointmentKey(appointment, index))}
-					onclick={() =>
-						handleAppointmentTap(getAppointmentKey(appointment, index), appointment.summary)}
-				>
-					<p class="appointment-date">
-						{formatTimeRange(appointment.startTime ?? '', appointment.endTime ?? '')}
-					</p>
-					<p class="appointment-title">
-						{expandedAppointmentKey === getAppointmentKey(appointment, index)
-							? appointment.summary
-							: truncateAppointmentTitle(appointment.summary)}
-					</p>
-					{#if appointment.description}
-						<p class="appointment-description font-light">{appointment.description}</p>
-					{/if}
+			{#each groupedAppointments as group}
+				<div class="space-y-1.5">
+					<p class="appointment-day">{group.day}</p>
+					{#each group.appointments as appointment, index (getAppointmentKey(appointment, index))}
+						<div
+							class={`cursor-pointer rounded-2xl p-3 text-left ${getWidgetSurfaceClass(
+								resolvedStyle,
+								resolvedPosition
+							)}`}
+							onmouseenter={() => {
+								if (isTitleTruncated(appointment.summary)) {
+									expandAppointment(getAppointmentKey(appointment, index));
+								}
+							}}
+							onmouseleave={() => collapseAppointment(getAppointmentKey(appointment, index))}
+							onclick={() =>
+								handleAppointmentTap(getAppointmentKey(appointment, index), appointment.summary)}
+						>
+							<p class="appointment-date">
+								{formatTimeRange(appointment.startTime ?? '', appointment.endTime ?? '')}
+							</p>
+							<p class="appointment-title">
+								{expandedAppointmentKey === getAppointmentKey(appointment, index)
+									? appointment.summary
+									: truncateAppointmentTitle(appointment.summary)}
+							</p>
+							{#if appointment.description}
+								<p class="appointment-description font-light">{appointment.description}</p>
+							{/if}
+						</div>
+					{/each}
 				</div>
 			{/each}
 		</div>
@@ -174,5 +220,14 @@
 	.appointment-description {
 		font-size: 0.78em;
 		line-height: 1.25;
+	}
+
+	.appointment-day {
+		font-size: 0.68em;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		line-height: 1.2;
+		opacity: 0.85;
+		text-transform: uppercase;
 	}
 </style>

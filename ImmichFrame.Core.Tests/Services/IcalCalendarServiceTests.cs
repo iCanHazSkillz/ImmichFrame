@@ -75,8 +75,10 @@ public class IcalCalendarServiceTests
         var calendarTimeZone = TimeZoneInfo.FindSystemTimeZoneById("America/Edmonton");
         var todayInTimeZone = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, calendarTimeZone);
         var localStart = new DateTime(todayInTimeZone.Year, todayInTimeZone.Month, todayInTimeZone.Day, 9, 0, 0, DateTimeKind.Unspecified);
+        var localNow = new DateTime(todayInTimeZone.Year, todayInTimeZone.Month, todayInTimeZone.Day, 8, 0, 0, DateTimeKind.Unspecified);
         var utcStart = TimeZoneInfo.ConvertTimeToUtc(localStart, calendarTimeZone);
         var utcEnd = utcStart.AddHours(1);
+        var utcNow = TimeZoneInfo.ConvertTimeToUtc(localNow, calendarTimeZone);
 
         using var handler = new CaptureHttpMessageHandler((_, _) =>
         {
@@ -117,7 +119,8 @@ public class IcalCalendarServiceTests
         var service = new IcalCalendarService(
             settingsProvider.Object,
             NullLogger<IcalCalendarService>.Instance,
-            httpClientFactory.Object);
+            httpClientFactory.Object,
+            () => new DateTimeOffset(utcNow, TimeSpan.Zero));
 
         var appointments = await service.GetAppointments();
 
@@ -199,8 +202,10 @@ public class IcalCalendarServiceTests
         var calendarTimeZone = TimeZoneInfo.FindSystemTimeZoneById("America/Edmonton");
         var todayInTimeZone = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, calendarTimeZone);
         var localStart = new DateTime(todayInTimeZone.Year, todayInTimeZone.Month, todayInTimeZone.Day, 9, 0, 0, DateTimeKind.Unspecified);
+        var localNow = new DateTime(todayInTimeZone.Year, todayInTimeZone.Month, todayInTimeZone.Day, 8, 0, 0, DateTimeKind.Unspecified);
         var initialOccurrenceStart = localStart.AddDays(-1);
         var initialOccurrenceEnd = initialOccurrenceStart.AddHours(1);
+        var utcNow = TimeZoneInfo.ConvertTimeToUtc(localNow, calendarTimeZone);
 
         using var handler = new CaptureHttpMessageHandler((_, _) =>
         {
@@ -242,7 +247,8 @@ public class IcalCalendarServiceTests
         var service = new IcalCalendarService(
             settingsProvider.Object,
             NullLogger<IcalCalendarService>.Instance,
-            httpClientFactory.Object);
+            httpClientFactory.Object,
+            () => new DateTimeOffset(utcNow, TimeSpan.Zero));
 
         var appointments = await service.GetAppointments();
 
@@ -254,6 +260,256 @@ public class IcalCalendarServiceTests
             Assert.That(appointments[0].StartTime.Date, Is.EqualTo(localStart.Date));
             Assert.That(appointments[0].EndTime.Hour, Is.EqualTo(10));
         });
+    }
+
+    [Test]
+    public async Task GetAppointments_DefaultLookaheadExcludesTomorrow()
+    {
+        var now = new DateTimeOffset(2026, 4, 21, 8, 0, 0, TimeSpan.Zero);
+        var ics = """
+                  BEGIN:VCALENDAR
+                  VERSION:2.0
+                  PRODID:-//ImmichFrame.Tests//EN
+                  BEGIN:VEVENT
+                  UID:tomorrow-event
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260422T090000Z
+                  DTEND:20260422T100000Z
+                  SUMMARY:Tomorrow event
+                  END:VEVENT
+                  END:VCALENDAR
+                  """;
+
+        var service = CreateCalendarService(ics, now);
+
+        var appointments = await service.GetAppointments();
+
+        Assert.That(appointments, Is.Empty);
+    }
+
+    [Test]
+    public async Task GetAppointments_LookaheadIncludesTomorrow()
+    {
+        var now = new DateTimeOffset(2026, 4, 21, 8, 0, 0, TimeSpan.Zero);
+        var ics = """
+                  BEGIN:VCALENDAR
+                  VERSION:2.0
+                  PRODID:-//ImmichFrame.Tests//EN
+                  BEGIN:VEVENT
+                  UID:tomorrow-event
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260422T090000Z
+                  DTEND:20260422T100000Z
+                  SUMMARY:Tomorrow event
+                  END:VEVENT
+                  END:VCALENDAR
+                  """;
+
+        var service = CreateCalendarService(ics, now, lookaheadDays: 1);
+
+        var appointments = await service.GetAppointments();
+
+        Assert.That(appointments.Select(appointment => appointment.Summary), Is.EqualTo(new[] { "Tomorrow event" }));
+    }
+
+    [Test]
+    public async Task GetAppointments_ExcludesPastEventsAndKeepsCurrentAndFutureEvents()
+    {
+        var now = new DateTimeOffset(2026, 4, 21, 8, 1, 0, TimeSpan.Zero);
+        var ics = """
+                  BEGIN:VCALENDAR
+                  VERSION:2.0
+                  PRODID:-//ImmichFrame.Tests//EN
+                  BEGIN:VEVENT
+                  UID:past-event
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260421T060000Z
+                  DTEND:20260421T070000Z
+                  SUMMARY:Past event
+                  END:VEVENT
+                  BEGIN:VEVENT
+                  UID:current-event
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260421T080000Z
+                  DTEND:20260421T090000Z
+                  SUMMARY:Current event
+                  END:VEVENT
+                  BEGIN:VEVENT
+                  UID:future-event
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260421T100000Z
+                  DTEND:20260421T110000Z
+                  SUMMARY:Future event
+                  END:VEVENT
+                  END:VCALENDAR
+                  """;
+
+        var service = CreateCalendarService(ics, now);
+
+        var appointments = await service.GetAppointments();
+
+        Assert.That(
+            appointments.Select(appointment => appointment.Summary),
+            Is.EqualTo(new[] { "Current event", "Future event" }));
+    }
+
+    [Test]
+    public async Task GetAppointments_ExpandsRecurringEventsAcrossLookaheadRange()
+    {
+        var now = new DateTimeOffset(2026, 4, 21, 8, 0, 0, TimeSpan.Zero);
+        var ics = """
+                  BEGIN:VCALENDAR
+                  VERSION:2.0
+                  PRODID:-//ImmichFrame.Tests//EN
+                  BEGIN:VEVENT
+                  UID:daily-event
+                  DTSTAMP:20260420T000000Z
+                  DTSTART:20260420T090000Z
+                  DTEND:20260420T100000Z
+                  RRULE:FREQ=DAILY;COUNT=4
+                  SUMMARY:Daily event
+                  END:VEVENT
+                  END:VCALENDAR
+                  """;
+
+        var service = CreateCalendarService(ics, now, lookaheadDays: 2, maxEvents: 10);
+
+        var appointments = await service.GetAppointments();
+
+        Assert.That(appointments.Select(appointment => appointment.StartTime.Day), Is.EqualTo(new[] { 21, 22, 23 }));
+    }
+
+    [Test]
+    public async Task GetAppointments_SortsEventsChronologicallyAndAppliesMaxEvents()
+    {
+        var now = new DateTimeOffset(2026, 4, 21, 8, 0, 0, TimeSpan.Zero);
+        var ics = """
+                  BEGIN:VCALENDAR
+                  VERSION:2.0
+                  PRODID:-//ImmichFrame.Tests//EN
+                  BEGIN:VEVENT
+                  UID:late-event
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260421T120000Z
+                  DTEND:20260421T130000Z
+                  SUMMARY:Late event
+                  END:VEVENT
+                  BEGIN:VEVENT
+                  UID:first-event
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260421T090000Z
+                  DTEND:20260421T100000Z
+                  SUMMARY:First event
+                  END:VEVENT
+                  BEGIN:VEVENT
+                  UID:second-event
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260421T100000Z
+                  DTEND:20260421T110000Z
+                  SUMMARY:Second event
+                  END:VEVENT
+                  END:VCALENDAR
+                  """;
+
+        var service = CreateCalendarService(ics, now, maxEvents: 2);
+
+        var appointments = await service.GetAppointments();
+
+        Assert.That(
+            appointments.Select(appointment => appointment.Summary),
+            Is.EqualTo(new[] { "First event", "Second event" }));
+    }
+
+    [Test]
+    public async Task GetAppointments_SortsDayGroupsDescendingAndKeepsEventsWithinDayAscending()
+    {
+        var now = new DateTimeOffset(2026, 4, 21, 8, 0, 0, TimeSpan.Zero);
+        var ics = """
+                  BEGIN:VCALENDAR
+                  VERSION:2.0
+                  PRODID:-//ImmichFrame.Tests//EN
+                  BEGIN:VEVENT
+                  UID:first-event
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260421T090000Z
+                  DTEND:20260421T100000Z
+                  SUMMARY:First event
+                  END:VEVENT
+                  BEGIN:VEVENT
+                  UID:tomorrow-late-event
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260422T120000Z
+                  DTEND:20260422T130000Z
+                  SUMMARY:Tomorrow late event
+                  END:VEVENT
+                  BEGIN:VEVENT
+                  UID:tomorrow-first-event
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260422T090000Z
+                  DTEND:20260422T100000Z
+                  SUMMARY:Tomorrow first event
+                  END:VEVENT
+                  BEGIN:VEVENT
+                  UID:second-event
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260421T100000Z
+                  DTEND:20260421T110000Z
+                  SUMMARY:Second event
+                  END:VEVENT
+                  END:VCALENDAR
+                  """;
+
+        var service = CreateCalendarService(ics, now, lookaheadDays: 1, maxEvents: 4, sortDirection: "descending");
+
+        var appointments = await service.GetAppointments();
+
+        Assert.That(
+            appointments.Select(appointment => appointment.Summary),
+            Is.EqualTo(new[]
+            {
+                "Tomorrow first event",
+                "Tomorrow late event",
+                "First event",
+                "Second event"
+            }));
+    }
+
+    private static IcalCalendarService CreateCalendarService(
+        string ics,
+        DateTimeOffset utcNow,
+        int lookaheadDays = 0,
+        int maxEvents = 5,
+        string calendarTimeZone = "UTC",
+        string sortDirection = "ascending")
+    {
+        var handler = new CaptureHttpMessageHandler((_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(ics)
+            }));
+
+        var httpClient = new HttpClient(handler);
+        var httpClientFactory = new Mock<IHttpClientFactory>();
+        httpClientFactory.Setup(x => x.CreateClient(It.IsAny<string>())).Returns(httpClient);
+
+        var generalSettings = new Mock<IGeneralSettings>();
+        generalSettings.SetupGet(x => x.Webcalendars).Returns(["https://calendar.example.com/basic.ics"]);
+        generalSettings.SetupGet(x => x.CalendarTimeZone).Returns(calendarTimeZone);
+        generalSettings.SetupGet(x => x.CalendarLookaheadDays).Returns(lookaheadDays);
+        generalSettings.SetupGet(x => x.CalendarMaxEvents).Returns(maxEvents);
+        generalSettings.SetupGet(x => x.CalendarSortDirection).Returns(sortDirection);
+
+        var serverSettings = new Mock<IServerSettings>();
+        serverSettings.SetupGet(x => x.GeneralSettings).Returns(generalSettings.Object);
+
+        var settingsProvider = new Mock<ISettingsSnapshotProvider>();
+        settingsProvider.Setup(x => x.GetCurrentSnapshot()).Returns(new SettingsSnapshot(1, serverSettings.Object));
+
+        return new IcalCalendarService(
+            settingsProvider.Object,
+            NullLogger<IcalCalendarService>.Instance,
+            httpClientFactory.Object,
+            () => utcNow);
     }
 
     private sealed class CaptureHttpMessageHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> handler)

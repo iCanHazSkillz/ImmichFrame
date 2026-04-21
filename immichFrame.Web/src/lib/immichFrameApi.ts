@@ -216,6 +216,9 @@ export type ClientSettingsDto = {
     calendarFontSize?: string | null;
     metadataFontSize?: string | null;
     calendarTimeZone?: string | null;
+    calendarLookaheadDays?: number;
+    calendarMaxEvents?: number;
+    calendarSortDirection?: string | null;
     clockStyle?: string | null;
     weatherStyle?: string | null;
     calendarStyle?: string | null;

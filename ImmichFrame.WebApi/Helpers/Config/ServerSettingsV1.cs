@@ -1,4 +1,5 @@
 using ImmichFrame.Core.Interfaces;
+using ImmichFrame.Core.Helpers;
 
 namespace ImmichFrame.WebApi.Helpers;
 
@@ -60,6 +61,9 @@ public class ServerSettingsV1 : IConfigSettable
     public string? MetadataFontSize { get; set; }
     public string? CalendarTimeZone { get; set; }
     public string? CalendarDateFormat { get; set; }
+    public int CalendarLookaheadDays { get; set; } = CalendarSettingsLimits.DefaultLookaheadDays;
+    public int CalendarMaxEvents { get; set; } = CalendarSettingsLimits.DefaultMaxEvents;
+    public string CalendarSortDirection { get; set; } = CalendarSettingsLimits.DefaultSortDirection;
     public string? ClockStyle { get; set; }
     public string? WeatherStyle { get; set; }
     public string? CalendarStyle { get; set; }
@@ -159,6 +163,9 @@ public class ServerSettingsV1Adapter(ServerSettingsV1 _delegate) : IServerSettin
         public string? MetadataFontSize => _delegate.MetadataFontSize;
         public string? CalendarTimeZone => _delegate.CalendarTimeZone;
         public string? CalendarDateFormat => _delegate.CalendarDateFormat;
+        public int CalendarLookaheadDays => CalendarSettingsLimits.NormalizeLookaheadDays(_delegate.CalendarLookaheadDays);
+        public int CalendarMaxEvents => CalendarSettingsLimits.NormalizeMaxEvents(_delegate.CalendarMaxEvents);
+        public string CalendarSortDirection => CalendarSettingsLimits.NormalizeSortDirection(_delegate.CalendarSortDirection);
         public string? ClockStyle => _delegate.ClockStyle;
         public string? WeatherStyle => _delegate.WeatherStyle;
         public string? CalendarStyle => _delegate.CalendarStyle;
@@ -178,6 +185,11 @@ public class ServerSettingsV1Adapter(ServerSettingsV1 _delegate) : IServerSettin
         public string Layout => _delegate.Layout;
         public string Language => _delegate.Language;
 
-        public void Validate() { }
+        public void Validate()
+        {
+            _delegate.CalendarLookaheadDays = CalendarSettingsLimits.NormalizeLookaheadDays(_delegate.CalendarLookaheadDays);
+            _delegate.CalendarMaxEvents = CalendarSettingsLimits.NormalizeMaxEvents(_delegate.CalendarMaxEvents);
+            _delegate.CalendarSortDirection = CalendarSettingsLimits.NormalizeSortDirection(_delegate.CalendarSortDirection);
+        }
     }
 }

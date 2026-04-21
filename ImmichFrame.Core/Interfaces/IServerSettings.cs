@@ -69,6 +69,9 @@
         public string? MetadataFontSize { get; }
         public string? CalendarTimeZone { get; }
         public string? CalendarDateFormat { get; }
+        public int CalendarLookaheadDays { get; }
+        public int CalendarMaxEvents { get; }
+        public string CalendarSortDirection { get; }
         public string? ClockStyle { get; }
         public string? WeatherStyle { get; }
         public string? CalendarStyle { get; }

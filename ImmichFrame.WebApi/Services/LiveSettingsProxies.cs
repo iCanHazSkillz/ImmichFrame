@@ -55,6 +55,9 @@ public sealed class DynamicGeneralSettings(ISettingsSnapshotProvider settingsPro
     public string? MetadataFontSize => Current.MetadataFontSize;
     public string? CalendarTimeZone => Current.CalendarTimeZone;
     public string? CalendarDateFormat => Current.CalendarDateFormat;
+    public int CalendarLookaheadDays => Current.CalendarLookaheadDays;
+    public int CalendarMaxEvents => Current.CalendarMaxEvents;
+    public string CalendarSortDirection => Current.CalendarSortDirection;
     public string? ClockStyle => Current.ClockStyle;
     public string? WeatherStyle => Current.WeatherStyle;
     public string? CalendarStyle => Current.CalendarStyle;
