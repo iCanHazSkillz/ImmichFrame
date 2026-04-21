@@ -266,6 +266,7 @@
 	let pendingGeneralNumberInputs = $state<Partial<Record<RequiredGeneralNumberField, string>>>({});
 	let albumValidationState = $state<Record<string, AccountAlbumValidationState>>({});
 	let albumValidationPending = $state<Record<string, boolean>>({});
+	let albumValidationGeneration = $state<Record<string, number>>({});
 	let albumValidationTimer: ReturnType<typeof setTimeout> | null = null;
 
 	const serializedDraft = $derived(draft ? serializeEditableSettings(draft) : '');
@@ -485,6 +486,19 @@
 		return albumValidationPending[accountIdentifier] ?? false;
 	}
 
+	function nextAlbumValidationGeneration(accountIdentifier: string) {
+		const generation = (albumValidationGeneration[accountIdentifier] ?? 0) + 1;
+		albumValidationGeneration = {
+			...albumValidationGeneration,
+			[accountIdentifier]: generation
+		};
+		return generation;
+	}
+
+	function isCurrentAlbumValidation(accountIdentifier: string, generation: number) {
+		return albumValidationGeneration[accountIdentifier] === generation;
+	}
+
 	function albumValidationStatusFromResult(
 		result: AdminAlbumValidationResultDto
 	): AlbumTokenStatus {
@@ -541,43 +555,61 @@
 	}
 
 	async function validateAccountAlbums(account: AdminManagedAccountSettings) {
+		const accountIdentifier = account.accountIdentifier;
+		const validationGeneration = nextAlbumValidationGeneration(accountIdentifier);
 		const albums = account.albums.filter(isUuid).map(normalizeUuid);
 		const excludedAlbums = account.excludedAlbums.filter(isUuid).map(normalizeUuid);
 
 		if (albums.length === 0 && excludedAlbums.length === 0) {
 			albumValidationState = {
 				...albumValidationState,
-				[account.accountIdentifier]: emptyAlbumValidationState()
+				[accountIdentifier]: emptyAlbumValidationState()
+			};
+			albumValidationPending = {
+				...albumValidationPending,
+				[accountIdentifier]: false
 			};
 			return;
 		}
 
 		albumValidationPending = {
 			...albumValidationPending,
-			[account.accountIdentifier]: true
+			[accountIdentifier]: true
 		};
 
 		try {
 			const result = await validateAdminAlbums({
-				accountIdentifier: account.accountIdentifier,
+				accountIdentifier,
 				albums,
 				excludedAlbums
 			});
 
+			if (!isCurrentAlbumValidation(accountIdentifier, validationGeneration)) {
+				return;
+			}
+
 			albumValidationState = {
 				...albumValidationState,
-				[account.accountIdentifier]: {
+				[accountIdentifier]: {
 					albums: mapAlbumValidationResults(result.albums),
 					excludedAlbums: mapAlbumValidationResults(result.excludedAlbums)
 				}
 			};
 		} catch (error) {
+			if (!isCurrentAlbumValidation(accountIdentifier, validationGeneration)) {
+				return;
+			}
+
 			console.warn('Failed to validate album UUIDs:', error);
 			markAlbumValidationFailed(account, 'Album validation failed. Try again in a moment.');
 		} finally {
+			if (!isCurrentAlbumValidation(accountIdentifier, validationGeneration)) {
+				return;
+			}
+
 			albumValidationPending = {
 				...albumValidationPending,
-				[account.accountIdentifier]: false
+				[accountIdentifier]: false
 			};
 		}
 	}

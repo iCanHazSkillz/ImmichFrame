@@ -202,6 +202,10 @@ public class AdminSettingsController : ControllerBase
                 CorrelationId = AssetHelper.TryGetCorrelationId(ex.Response)
             };
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             return new AdminAlbumValidationResultDto

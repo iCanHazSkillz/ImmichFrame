@@ -36,11 +36,11 @@ public abstract class CachingApiAssetsPool : IAssetPool
     {
         var excludedAlbumAssets = await ApiCache.GetOrAddAsync(
             $"{GetType().FullName}_ExcludedAlbums",
-            () => AssetHelper.GetExcludedAlbumAssets(ImmichApi, AccountSettings, Logger));
+            () => AssetHelper.GetExcludedAlbumAssets(ImmichApi, AccountSettings, Logger, ct));
 
         return await ApiCache.GetOrAddAsync(
             GetType().FullName!,
-            () => LoadAssets().ApplyAccountFilters(AccountSettings, excludedAlbumAssets));
+            () => LoadAssets(ct).ApplyAccountFilters(AccountSettings, excludedAlbumAssets));
     }
 
     protected abstract Task<IEnumerable<AssetResponseDto>> LoadAssets(CancellationToken ct = default);

@@ -67,9 +67,14 @@ public static class AssetHelper
         try
         {
             using var document = JsonDocument.Parse(response);
-            return document.RootElement.TryGetProperty("correlationId", out var correlationId)
-                ? correlationId.GetString()
-                : null;
+            if (document.RootElement.ValueKind != JsonValueKind.Object ||
+                !document.RootElement.TryGetProperty("correlationId", out var correlationId) ||
+                correlationId.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
+            return correlationId.GetString();
         }
         catch (JsonException)
         {

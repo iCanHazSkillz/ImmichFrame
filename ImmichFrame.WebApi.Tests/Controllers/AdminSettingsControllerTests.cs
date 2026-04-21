@@ -33,7 +33,10 @@ public class AdminSettingsControllerTests
             {
                 builder.ConfigureTestServices(services =>
                 {
-                    services.AddSingleton<HttpMessageHandler>(_ => new AlbumValidationHttpMessageHandler(_albumValidationResponses));
+                    services.AddSingleton<HttpMessageHandler>(_ => new AlbumValidationHttpMessageHandler(
+                        _albumValidationResponses,
+                        new Uri(TestImmichServerUrl),
+                        TestApiKey));
                     services.AddHttpClient("ImmichApiAccountClient")
                         .ConfigurePrimaryHttpMessageHandler(sp => sp.GetRequiredService<HttpMessageHandler>());
                     services.ConfigureAll<HttpClientFactoryOptions>(options =>
@@ -777,7 +780,10 @@ public class AdminSettingsControllerTests
             {
                 builder.ConfigureTestServices(services =>
                 {
-                    services.AddSingleton<HttpMessageHandler>(_ => new AlbumValidationHttpMessageHandler(_albumValidationResponses));
+                    services.AddSingleton<HttpMessageHandler>(_ => new AlbumValidationHttpMessageHandler(
+                        _albumValidationResponses,
+                        new Uri(TestImmichServerUrl),
+                        TestApiKey));
                     services.AddHttpClient("ImmichApiAccountClient")
                         .ConfigurePrimaryHttpMessageHandler(sp => sp.GetRequiredService<HttpMessageHandler>());
                     services.ConfigureAll<HttpClientFactoryOptions>(options =>
@@ -1122,10 +1128,28 @@ public class AdminSettingsControllerTests
     }
 
     private sealed class AlbumValidationHttpMessageHandler(
-        IReadOnlyDictionary<Guid, (HttpStatusCode StatusCode, string Content)> responses) : HttpMessageHandler
+        IReadOnlyDictionary<Guid, (HttpStatusCode StatusCode, string Content)> responses,
+        Uri expectedBaseUri,
+        string expectedApiKey) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            var requestUri = request.RequestUri;
+            if (request.Method != HttpMethod.Get ||
+                requestUri == null ||
+                !string.Equals(requestUri.Host, expectedBaseUri.Host, StringComparison.OrdinalIgnoreCase) ||
+                requestUri.Port != expectedBaseUri.Port ||
+                !requestUri.AbsolutePath.Contains("/api/albums/", StringComparison.OrdinalIgnoreCase) ||
+                !request.Headers.TryGetValues("X-API-KEY", out var apiKeys) ||
+                !apiKeys.Contains(expectedApiKey, StringComparer.Ordinal))
+            {
+                return Task.FromResult(new HttpResponseMessage
+                {
+                    StatusCode = HttpStatusCode.BadRequest,
+                    Content = new StringContent("""{"message":"Unexpected album validation request"}""")
+                });
+            }
+
             var albumIdText = request.RequestUri?.Segments.LastOrDefault()?.TrimEnd('/');
             if (Guid.TryParse(albumIdText, out var albumId) && responses.TryGetValue(albumId, out var response))
             {
