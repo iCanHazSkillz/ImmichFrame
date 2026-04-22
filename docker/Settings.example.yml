@@ -4,6 +4,9 @@ General:
   RenewImagesDuration: 30
   Webcalendars:
     - calendarurl
+  CalendarLookaheadDays: 0
+  CalendarMaxEvents: 5
+  CalendarSortDirection: ascending
   RefreshAlbumPeopleInterval: 12
   PhotoDateFormat: MM/dd/yyyy
   ImageLocationFormat: 'City,State,Country'

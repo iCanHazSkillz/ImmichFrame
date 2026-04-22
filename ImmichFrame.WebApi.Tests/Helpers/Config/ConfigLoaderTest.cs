@@ -115,6 +115,10 @@ public class ConfigLoaderTest
                     {
                         Assert.That(value, Is.Null.Or.EqualTo(string.Empty).Or.EqualTo(prefix + prop.Name + "_TEST"), prop.Name);
                     }
+                    else if (prop.Name.Equals("CalendarSortDirection"))
+                    {
+                        Assert.That(value, Is.EqualTo("ascending").Or.EqualTo("descending"), prop.Name);
+                    }
                     else if (prop.Name.Equals("AccountIdentifier"))
                     {
                         Assert.That(value, Is.EqualTo(string.Empty), prop.Name);

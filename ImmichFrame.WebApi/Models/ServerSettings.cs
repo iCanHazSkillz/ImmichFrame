@@ -1,4 +1,5 @@
 ﻿using System.Text.Json.Serialization;
+using ImmichFrame.Core.Helpers;
 using ImmichFrame.Core.Interfaces;
 using ImmichFrame.WebApi.Helpers;
 using YamlDotNet.Serialization;
@@ -26,7 +27,8 @@ public class ServerSettings : IServerSettings, IConfigSettable
 
     public void Validate()
     {
-        GeneralSettings.Validate();
+        GeneralSettingsImpl ??= new GeneralSettings();
+        GeneralSettingsImpl.Validate();
 
         foreach (var account in Accounts)
         {
@@ -68,6 +70,9 @@ public class GeneralSettings : IGeneralSettings, IConfigSettable
     public string? MetadataFontSize { get; set; }
     public string? CalendarTimeZone { get; set; }
     public string? CalendarDateFormat { get; set; }
+    public int CalendarLookaheadDays { get; set; } = CalendarSettingsLimits.DefaultLookaheadDays;
+    public int CalendarMaxEvents { get; set; } = CalendarSettingsLimits.DefaultMaxEvents;
+    public string CalendarSortDirection { get; set; } = CalendarSettingsLimits.DefaultSortDirection;
     public string? ClockStyle { get; set; }
     public string? WeatherStyle { get; set; }
     public string? CalendarStyle { get; set; }
@@ -94,7 +99,12 @@ public class GeneralSettings : IGeneralSettings, IConfigSettable
     public string? Webhook { get; set; }
     public string? AuthenticationSecret { get; set; }
 
-    public void Validate() { }
+    public void Validate()
+    {
+        CalendarLookaheadDays = CalendarSettingsLimits.NormalizeLookaheadDays(CalendarLookaheadDays);
+        CalendarMaxEvents = CalendarSettingsLimits.NormalizeMaxEvents(CalendarMaxEvents);
+        CalendarSortDirection = CalendarSettingsLimits.NormalizeSortDirection(CalendarSortDirection);
+    }
 }
 
 public class ServerAccountSettings : IAccountSettings, IConfigSettable

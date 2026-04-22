@@ -6,6 +6,9 @@
     "Webcalendars": [
       "Webcalendars_TEST"
     ],
+    "CalendarLookaheadDays": 7,
+    "CalendarMaxEvents": 7,
+    "CalendarSortDirection": "descending",
     "RefreshAlbumPeopleInterval": 7,
     "PhotoDateFormat": "PhotoDateFormat_TEST",
     "ImageLocationFormat": "ImageLocationFormat_TEST",

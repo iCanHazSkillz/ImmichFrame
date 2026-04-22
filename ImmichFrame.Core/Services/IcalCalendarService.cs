@@ -12,15 +12,26 @@ public class IcalCalendarService : ICalendarService
     private readonly ISettingsSnapshotProvider _settingsProvider;
     private readonly ILogger<IcalCalendarService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly Func<DateTimeOffset> _utcNowProvider;
     private readonly object _sync = new();
     private ApiCache _appointmentCache = new(TimeSpan.FromMinutes(15));
     private long _cacheVersion = -1;
 
     public IcalCalendarService(ISettingsSnapshotProvider settingsProvider, ILogger<IcalCalendarService> logger, IHttpClientFactory httpClientFactory)
+        : this(settingsProvider, logger, httpClientFactory, () => DateTimeOffset.UtcNow)
+    {
+    }
+
+    public IcalCalendarService(
+        ISettingsSnapshotProvider settingsProvider,
+        ILogger<IcalCalendarService> logger,
+        IHttpClientFactory httpClientFactory,
+        Func<DateTimeOffset> utcNowProvider)
     {
         _logger = logger;
         _settingsProvider = settingsProvider;
         _httpClientFactory = httpClientFactory;
+        _utcNowProvider = utcNowProvider;
     }
 
     public async Task<List<IAppointment>> GetAppointments()
@@ -28,17 +39,22 @@ public class IcalCalendarService : ICalendarService
         var snapshot = _settingsProvider.GetCurrentSnapshot();
         var settings = snapshot.Settings.GeneralSettings;
         var calendarTimeZone = TimeZoneSettingsHelper.ResolveCalendarTimeZone(settings.CalendarTimeZone);
+        var now = TimeZoneInfo.ConvertTime(_utcNowProvider(), calendarTimeZone);
+        var lookaheadDays = CalendarSettingsLimits.NormalizeLookaheadDays(settings.CalendarLookaheadDays);
+        var maxEvents = CalendarSettingsLimits.NormalizeMaxEvents(settings.CalendarMaxEvents);
+        var sortDescending = CalendarSettingsLimits.IsDescendingSortDirection(settings.CalendarSortDirection);
+        var (windowStart, windowEnd) = GetCalendarWindow(now, lookaheadDays);
+        var windowStartUtc = TimeZoneInfo.ConvertTimeToUtc(windowStart, calendarTimeZone);
+        var windowEndUtc = TimeZoneInfo.ConvertTimeToUtc(windowEnd, calendarTimeZone);
+        var windowStartBoundary = new DateTimeOffset(windowStartUtc, TimeSpan.Zero);
+        var windowEndBoundary = new DateTimeOffset(windowEndUtc, TimeSpan.Zero);
         var cache = GetCache(snapshot.Version);
-        return await cache.GetOrAddAsync("appointments", async () =>
+        var cacheKey = $"appointments_{windowStart:yyyyMMdd}_{lookaheadDays}";
+        var appointments = await cache.GetOrAddAsync(cacheKey, async () =>
         {
-            var appointments = new List<IAppointment>();
-            var (windowStart, windowEnd) = GetTodayWindow(calendarTimeZone);
-            var windowStartUtc = TimeZoneInfo.ConvertTimeToUtc(windowStart, calendarTimeZone);
-            var windowEndUtc = TimeZoneInfo.ConvertTimeToUtc(windowEnd, calendarTimeZone);
+            var loadedAppointments = new List<IAppointment>();
             var windowStartCalDateTime = new CalDateTime(windowStartUtc, "UTC");
             var windowEndCalDateTime = new CalDateTime(windowEndUtc, "UTC");
-            var windowStartBoundary = new DateTimeOffset(windowStartUtc, TimeSpan.Zero);
-            var windowEndBoundary = new DateTimeOffset(windowEndUtc, TimeSpan.Zero);
 
             List<(string? auth, string url)> cals = settings.Webcalendars.Select<string, (string? auth, string url)?>(x =>
             {
@@ -72,15 +88,33 @@ public class IcalCalendarService : ICalendarService
             {
                 var calendar = Calendar.Load(ical);
 
-                appointments.AddRange(
+                loadedAppointments.AddRange(
                     calendar
                         .GetOccurrences(windowStartCalDateTime, windowEndCalDateTime)
                         .Select(occurrence => occurrence.ToAppointment(calendarTimeZone))
                         .Where(appointment => OverlapsWindow(appointment, windowStartBoundary, windowEndBoundary)));
             }
 
-            return appointments;
+            return loadedAppointments;
         });
+
+        var upcomingAppointments = appointments
+            .Where(appointment => OverlapsWindow(appointment, windowStartBoundary, windowEndBoundary))
+            .Where(appointment => appointment.EndTime > now)
+            .OrderBy(appointment => appointment.StartTime)
+            .ThenBy(appointment => appointment.EndTime)
+            .ThenBy(appointment => appointment.Summary ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            .Take(maxEvents);
+
+        var displayAppointments = sortDescending
+            ? upcomingAppointments
+                .OrderByDescending(appointment => appointment.StartTime.Date)
+                .ThenBy(appointment => appointment.StartTime)
+                .ThenBy(appointment => appointment.EndTime)
+                .ThenBy(appointment => appointment.Summary ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            : upcomingAppointments;
+
+        return displayAppointments.ToList();
     }
 
     public async Task<List<string>> GetCalendars(IEnumerable<(string? auth, string url)> calendars)
@@ -148,11 +182,10 @@ public class IcalCalendarService : ICalendarService
         return newCache!;
     }
 
-    private static (DateTime Start, DateTime End) GetTodayWindow(TimeZoneInfo calendarTimeZone)
+    private static (DateTime Start, DateTime End) GetCalendarWindow(DateTimeOffset now, int lookaheadDays)
     {
-        var now = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, calendarTimeZone);
         var start = new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Unspecified);
-        return (start, start.AddDays(1));
+        return (start, start.AddDays(lookaheadDays + 1));
     }
 
     private static bool OverlapsWindow(IAppointment appointment, DateTimeOffset windowStart, DateTimeOffset windowEnd)

@@ -90,6 +90,9 @@ export interface AdminManagedGeneralSettings {
 	calendarFontSize?: string | null;
 	metadataFontSize?: string | null;
 	calendarTimeZone?: string | null;
+	calendarLookaheadDays: number;
+	calendarMaxEvents: number;
+	calendarSortDirection: string;
 	clockStyle?: string | null;
 	weatherStyle?: string | null;
 	calendarStyle?: string | null;

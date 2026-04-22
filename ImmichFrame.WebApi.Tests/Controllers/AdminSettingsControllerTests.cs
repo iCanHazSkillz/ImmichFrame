@@ -205,7 +205,13 @@ public class AdminSettingsControllerTests
         var response = await adminClient.GetFromJsonAsync<AdminSettingsResponseDto>("/api/admin/settings");
 
         Assert.That(response, Is.Not.Null);
-        Assert.That(response!.General.ShowWeather, Is.True);
+        Assert.Multiple(() =>
+        {
+            Assert.That(response!.General.ShowWeather, Is.True);
+            Assert.That(response.General.CalendarLookaheadDays, Is.EqualTo(0));
+            Assert.That(response.General.CalendarMaxEvents, Is.EqualTo(5));
+            Assert.That(response.General.CalendarSortDirection, Is.EqualTo("ascending"));
+        });
     }
 
     [Test]
@@ -508,6 +514,9 @@ public class AdminSettingsControllerTests
                 ImageFill = false,
                 PlayAudio = false,
                 Style = "none",
+                CalendarLookaheadDays = 2,
+                CalendarMaxEvents = 9,
+                CalendarSortDirection = "descending",
                 Webcalendars = ["https://calendar.example.com/basic.ics"]
             },
             CustomCss = "#progressbar { visibility: hidden; }",
@@ -538,6 +547,9 @@ public class AdminSettingsControllerTests
             Assert.That(updatedSettings!.General.Interval, Is.EqualTo(90));
             Assert.That(updatedSettings.General.ShowClock, Is.False);
             Assert.That(updatedSettings.General.ShowWeather, Is.False);
+            Assert.That(updatedSettings.General.CalendarLookaheadDays, Is.EqualTo(2));
+            Assert.That(updatedSettings.General.CalendarMaxEvents, Is.EqualTo(9));
+            Assert.That(updatedSettings.General.CalendarSortDirection, Is.EqualTo("descending"));
             Assert.That(updatedSettings.CustomCss, Is.EqualTo(expectedCustomCss));
             Assert.That(updatedSettings.Accounts[0].ShowFavorites, Is.True);
         });
@@ -549,9 +561,15 @@ public class AdminSettingsControllerTests
 
         var persisted = await adminClient.GetFromJsonAsync<AdminSettingsResponseDto>("/api/admin/settings");
         Assert.That(persisted, Is.Not.Null);
-        Assert.That(persisted!.General.Interval, Is.EqualTo(90));
-        Assert.That(persisted.Accounts[0].ShowFavorites, Is.True);
-        Assert.That(persisted.CustomCss, Is.EqualTo(expectedCustomCss));
+        Assert.Multiple(() =>
+        {
+            Assert.That(persisted!.General.Interval, Is.EqualTo(90));
+            Assert.That(persisted.General.CalendarLookaheadDays, Is.EqualTo(2));
+            Assert.That(persisted.General.CalendarMaxEvents, Is.EqualTo(9));
+            Assert.That(persisted.General.CalendarSortDirection, Is.EqualTo("descending"));
+            Assert.That(persisted.Accounts[0].ShowFavorites, Is.True);
+            Assert.That(persisted.CustomCss, Is.EqualTo(expectedCustomCss));
+        });
 
         var stylesheetResponse = await _factory.CreateClient().GetAsync("/static/custom.css");
         stylesheetResponse.EnsureSuccessStatusCode();
@@ -753,6 +771,51 @@ public class AdminSettingsControllerTests
 
         var persistedJson = await File.ReadAllTextAsync(Path.Combine(_tempAppDataPath, "admin-settings.json"));
         Assert.That(persistedJson, Does.Contain("America/New_York"));
+    }
+
+    [Test]
+    public async Task Update_ClampsCalendarLookaheadAndMaxEvents()
+    {
+        var adminClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var updateRequest = CreateValidUpdateRequest(string.Empty);
+        updateRequest.General.CalendarLookaheadDays = 99;
+        updateRequest.General.CalendarMaxEvents = 0;
+
+        var response = await adminClient.PutAsJsonAsync("/api/admin/settings", updateRequest);
+        response.EnsureSuccessStatusCode();
+
+        var updatedSettings = await response.Content.ReadFromJsonAsync<AdminSettingsResponseDto>();
+        Assert.That(updatedSettings, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(updatedSettings!.General.CalendarLookaheadDays, Is.EqualTo(7));
+            Assert.That(updatedSettings.General.CalendarMaxEvents, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public async Task Update_NormalizesUnknownCalendarSortDirectionToAscending()
+    {
+        var adminClient = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var updateRequest = CreateValidUpdateRequest(string.Empty);
+        updateRequest.General.CalendarSortDirection = "sideways";
+
+        var response = await adminClient.PutAsJsonAsync("/api/admin/settings", updateRequest);
+        response.EnsureSuccessStatusCode();
+
+        var updatedSettings = await response.Content.ReadFromJsonAsync<AdminSettingsResponseDto>();
+        Assert.That(updatedSettings, Is.Not.Null);
+        Assert.That(updatedSettings!.General.CalendarSortDirection, Is.EqualTo("ascending"));
     }
 
     [Test]

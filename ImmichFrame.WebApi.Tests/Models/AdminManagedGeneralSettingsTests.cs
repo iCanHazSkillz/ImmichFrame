@@ -76,7 +76,10 @@ public class AdminManagedGeneralSettingsTests
         {
             ShowPeopleDesc = true,
             ShowPeopleAge = true,
-            ShowPhotoTimeAgo = true
+            ShowPhotoTimeAgo = true,
+            CalendarLookaheadDays = 3,
+            CalendarMaxEvents = 8,
+            CalendarSortDirection = "descending"
         };
         var server = new GeneralSettings();
 
@@ -87,8 +90,53 @@ public class AdminManagedGeneralSettingsTests
         {
             Assert.That(server.ShowPeopleAge, Is.True);
             Assert.That(server.ShowPhotoTimeAgo, Is.True);
+            Assert.That(server.CalendarLookaheadDays, Is.EqualTo(3));
+            Assert.That(server.CalendarMaxEvents, Is.EqualTo(8));
+            Assert.That(server.CalendarSortDirection, Is.EqualTo("descending"));
             Assert.That(roundTripped.ShowPeopleAge, Is.True);
             Assert.That(roundTripped.ShowPhotoTimeAgo, Is.True);
+            Assert.That(roundTripped.CalendarLookaheadDays, Is.EqualTo(3));
+            Assert.That(roundTripped.CalendarMaxEvents, Is.EqualTo(8));
+            Assert.That(roundTripped.CalendarSortDirection, Is.EqualTo("descending"));
         });
+    }
+
+    [Test]
+    public void Normalize_ClampsCalendarLookaheadAndMaxEvents()
+    {
+        var tooHigh = new AdminManagedGeneralSettings
+        {
+            CalendarLookaheadDays = 99,
+            CalendarMaxEvents = 99
+        };
+        var tooLow = new AdminManagedGeneralSettings
+        {
+            CalendarLookaheadDays = -1,
+            CalendarMaxEvents = 0
+        };
+
+        tooHigh.Normalize();
+        tooLow.Normalize();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(tooHigh.CalendarLookaheadDays, Is.EqualTo(7));
+            Assert.That(tooHigh.CalendarMaxEvents, Is.EqualTo(10));
+            Assert.That(tooLow.CalendarLookaheadDays, Is.EqualTo(0));
+            Assert.That(tooLow.CalendarMaxEvents, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void Normalize_DefaultsUnknownCalendarSortDirectionToAscending()
+    {
+        var settings = new AdminManagedGeneralSettings
+        {
+            CalendarSortDirection = "sideways"
+        };
+
+        settings.Normalize();
+
+        Assert.That(settings.CalendarSortDirection, Is.EqualTo("ascending"));
     }
 }

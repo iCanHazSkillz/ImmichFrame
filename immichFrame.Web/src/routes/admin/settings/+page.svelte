@@ -96,6 +96,10 @@
 		{ value: 'transition', label: 'transition', hint: 'Directional gradient backing.' },
 		{ value: 'blur', label: 'blur', hint: 'Blurred translucent backdrop.' }
 	];
+	const calendarSortDirectionOptions = [
+		{ value: 'ascending', label: 'Ascending' },
+		{ value: 'descending', label: 'Descending' }
+	] as const;
 	const widgetLabels: Record<WidgetKey, string> = {
 		clock: 'Clock',
 		weather: 'Weather',
@@ -246,7 +250,9 @@
 	type RequiredGeneralIntField =
 		| 'interval'
 		| 'renewImagesDuration'
-		| 'refreshAlbumPeopleInterval';
+		| 'refreshAlbumPeopleInterval'
+		| 'calendarLookaheadDays'
+		| 'calendarMaxEvents';
 	type RequiredGeneralFloatField = 'transitionDuration';
 	type RequiredGeneralNumberField = RequiredGeneralIntField | RequiredGeneralFloatField;
 
@@ -347,13 +353,14 @@
 		return normalized.length ? normalized : null;
 	}
 
-	function parseRequiredInt(value: string, fallback: number, min = 0) {
+	function parseRequiredInt(value: string, fallback: number, min = 0, max?: number) {
 		const parsed = Number.parseInt(value, 10);
 		if (!Number.isFinite(parsed)) {
 			return fallback;
 		}
 
-		return Math.max(min, parsed);
+		const minValue = Math.max(min, parsed);
+		return max == null ? minValue : Math.min(max, minValue);
 	}
 
 	function parseRequiredFloat(value: string, fallback: number, min = 0) {
@@ -390,7 +397,8 @@
 	function updateRequiredGeneralIntInput(
 		key: RequiredGeneralIntField,
 		value: string,
-		min = 0
+		min = 0,
+		max?: number
 	) {
 		setPendingGeneralNumberInput(key, value);
 		const normalized = value.trim();
@@ -403,7 +411,8 @@
 			return;
 		}
 
-		updateGeneral(key, Math.max(min, parsed));
+		const minValue = Math.max(min, parsed);
+		updateGeneral(key, (max == null ? minValue : Math.min(max, minValue)) as AdminManagedGeneralSettings[typeof key]);
 	}
 
 	function updateRequiredGeneralFloatInput(
@@ -428,7 +437,8 @@
 	function commitRequiredGeneralIntInput(
 		key: RequiredGeneralIntField,
 		fallback: number,
-		min = 0
+		min = 0,
+		max?: number
 	) {
 		if (!draft) {
 			return;
@@ -439,8 +449,8 @@
 			return;
 		}
 
-		const nextValue = parseRequiredInt(pendingValue, fallback, min);
-		updateGeneral(key, nextValue);
+		const nextValue = parseRequiredInt(pendingValue, fallback, min, max);
+		updateGeneral(key, nextValue as AdminManagedGeneralSettings[typeof key]);
 		clearPendingGeneralNumberInput(key);
 	}
 
@@ -2244,6 +2254,85 @@
 												</option>
 												{#each sortedAvailableTimeZones as timeZone}
 													<option value={timeZone}>{timeZone}</option>
+												{/each}
+											</select>
+										</div>
+
+										<div class="grid gap-4 md:grid-cols-2">
+											<div class="space-y-2">
+												<SettingLabel
+													fieldId="calendarLookaheadDays-nested"
+													label="Lookahead Days"
+													description="Shows events from today plus this many additional days."
+													defaultValue="0"
+													options="Whole number from 0 to 7."
+													example="1"
+												/>
+												<input
+													id="calendarLookaheadDays-nested"
+													class={inputClass}
+													type="number"
+													min="0"
+													max="7"
+													value={getRequiredGeneralNumberValue('calendarLookaheadDays')}
+													oninput={(event) =>
+														updateRequiredGeneralIntInput(
+															'calendarLookaheadDays',
+															(event.currentTarget as HTMLInputElement).value,
+															0,
+															7
+														)}
+													onblur={() => commitRequiredGeneralIntInput('calendarLookaheadDays', 0, 0, 7)}
+												/>
+											</div>
+
+											<div class="space-y-2">
+												<SettingLabel
+													fieldId="calendarMaxEvents-nested"
+													label="Max Events"
+													description="Limits how many calendar events the frame receives at once."
+													defaultValue="5"
+													options="Whole number from 1 to 10."
+													example="5"
+												/>
+												<input
+													id="calendarMaxEvents-nested"
+													class={inputClass}
+													type="number"
+													min="1"
+													max="10"
+													value={getRequiredGeneralNumberValue('calendarMaxEvents')}
+													oninput={(event) =>
+														updateRequiredGeneralIntInput(
+															'calendarMaxEvents',
+															(event.currentTarget as HTMLInputElement).value,
+															1,
+															10
+														)}
+													onblur={() => commitRequiredGeneralIntInput('calendarMaxEvents', 5, 1, 10)}
+												/>
+											</div>
+										</div>
+
+										<div class="space-y-2">
+											<SettingLabel
+												label="Sort Direction"
+												description="Controls whether calendar events are ordered earliest-first or latest-first."
+												defaultValue="Ascending"
+												options="ascending or descending."
+												example="descending"
+											/>
+											<select
+												class={inputClass}
+												value={draft.general.calendarSortDirection ?? 'ascending'}
+												onchange={(event) =>
+													updateGeneral(
+														'calendarSortDirection',
+														(event.currentTarget as HTMLSelectElement).value
+													)}
+											>
+												{#each calendarSortDirectionOptions as option}
+													<option value={option.value}>{option.label}</option>
 												{/each}
 											</select>
 										</div>
