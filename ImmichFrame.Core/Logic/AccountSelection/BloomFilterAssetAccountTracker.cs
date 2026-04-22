@@ -1,7 +1,5 @@
-using System.Collections;
 using BloomFilter;
 using ImmichFrame.Core.Exceptions;
-using ImmichFrame.Core.Helpers;
 using ImmichFrame.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 
@@ -9,24 +7,46 @@ namespace ImmichFrame.Core.Logic.AccountSelection;
 
 public class BloomFilterAssetAccountTracker(ILogger<BloomFilterAssetAccountTracker> _logger) : IAssetAccountTracker
 {
-    private IDictionary<IAccountImmichFrameLogic, IBloomFilter> logicToFilter = new Dictionary<IAccountImmichFrameLogic, IBloomFilter>();
+    private readonly object _sync = new();
+    private readonly Dictionary<IAccountImmichFrameLogic, Task<IBloomFilter>> _logicToFilter =
+        new(ReferenceEqualityComparer.Instance);
 
     public async ValueTask<bool> RecordAssetLocation(IAccountImmichFrameLogic account, string assetId)
     {
-        var filter = await logicToFilter.GetOrCreateAsync(account, NewFilter);
+        Task<IBloomFilter> filterTask;
+        lock (_sync)
+        {
+            if (!_logicToFilter.TryGetValue(account, out filterTask!) || filterTask.IsFaulted || filterTask.IsCanceled)
+            {
+                filterTask = NewFilter(account);
+                _logicToFilter[account] = filterTask;
+            }
+        }
+
+        var filter = await filterTask;
         return await filter.AddAsync(assetId);
     }
 
-    private async Task<IBloomFilter> NewFilter(IImmichFrameLogic account)
+    private static async Task<IBloomFilter> NewFilter(IImmichFrameLogic account)
     {
         return FilterBuilder.Build(await account.GetTotalAssets());
     }
 
     public T ForAsset<T>(string assetId, Func<IAccountImmichFrameLogic, T> f)
     {
-        foreach (var entry in logicToFilter)
+        List<KeyValuePair<IAccountImmichFrameLogic, Task<IBloomFilter>>> filters;
+        lock (_sync)
         {
-            if (entry.Value.Contains(assetId))
+            filters = _logicToFilter.ToList();
+        }
+
+        foreach (var entry in filters)
+        {
+            var filter = entry.Value.IsCompletedSuccessfully
+                ? entry.Value.Result
+                : null;
+
+            if (filter?.Contains(assetId) == true)
             {
                 try
                 {
