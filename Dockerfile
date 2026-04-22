@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 # Stage 1: Base for building the .NET API
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:8.0 AS base-api
 
@@ -24,16 +26,17 @@ ENV APP_VERSION=$VERSION
 RUN dotnet publish --runtime linux-${TARGETARCH} --self-contained false -p:AssemblyVersion=$VERSION -o /app
 
 # Stage 3: Build frontend with Node.js
-FROM node:22-alpine AS build-node
+FROM --platform=$BUILDPLATFORM node:22-alpine AS build-node
 
 USER node
 WORKDIR /app
 COPY --chown=node:node ./immichFrame.Web/package*.json ./
 
 # Cache npm dependencies
-RUN npm i
+RUN --mount=type=cache,target=/home/node/.npm,uid=1000,gid=1000 \
+    npm ci --prefer-offline --no-audit --progress=false
 COPY --chown=node:node ./immichFrame.Web ./
-RUN npm run build && npm prune --omit=dev
+RUN npm run build
 
 # Stage 4: Final production stage
 FROM mcr.microsoft.com/dotnet/aspnet:8.0-jammy AS final
