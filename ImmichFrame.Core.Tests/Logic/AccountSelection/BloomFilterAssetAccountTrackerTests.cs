@@ -40,4 +40,31 @@ public class BloomFilterAssetAccountTrackerTests
 
         Assert.That(getTotalAssetsCalls, Is.EqualTo(1));
     }
+
+    [Test]
+    public void RecordAssetLocation_RetriesFilterCreationAfterTransientFailure()
+    {
+        var getTotalAssetsCalls = 0;
+        var account = new Mock<IAccountImmichFrameLogic>();
+        account
+            .Setup(logic => logic.GetTotalAssets())
+            .Returns(() =>
+            {
+                if (Interlocked.Increment(ref getTotalAssetsCalls) == 1)
+                {
+                    throw new InvalidOperationException("Transient asset count failure");
+                }
+
+                return Task.FromResult(100L);
+            });
+
+        var tracker = new BloomFilterAssetAccountTracker(NullLogger<BloomFilterAssetAccountTracker>.Instance);
+
+        Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await tracker.RecordAssetLocation(account.Object, "asset-after-failure"));
+
+        Assert.DoesNotThrowAsync(async () =>
+            await tracker.RecordAssetLocation(account.Object, "asset-after-failure"));
+        Assert.That(getTotalAssetsCalls, Is.EqualTo(2));
+    }
 }

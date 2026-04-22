@@ -16,10 +16,10 @@ public class BloomFilterAssetAccountTracker(ILogger<BloomFilterAssetAccountTrack
         Task<IBloomFilter> filterTask;
         lock (_sync)
         {
-            if (!_logicToFilter.TryGetValue(account, out filterTask!))
+            if (!_logicToFilter.TryGetValue(account, out filterTask!) || filterTask.IsFaulted || filterTask.IsCanceled)
             {
                 filterTask = NewFilter(account);
-                _logicToFilter.Add(account, filterTask);
+                _logicToFilter[account] = filterTask;
             }
         }
 
