@@ -17,6 +17,10 @@
 		return $configStore.calendarTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 	}
 
+	function getCalendarLocale() {
+		return $configStore.language || undefined;
+	}
+
 	function formatInCalendarTimeZone(date: Date, formatString: string, timeZone: string) {
 		try {
 			return formatInTimeZone(date, timeZone, formatString);
@@ -27,6 +31,32 @@
 
 	function getCalendarDayKey(date: Date, timeZone: string) {
 		return formatInCalendarTimeZone(date, 'yyyy-MM-dd', timeZone);
+	}
+
+	function formatRelativeCalendarDay(dayOffset: 0 | 1) {
+		try {
+			return new Intl.RelativeTimeFormat(getCalendarLocale(), { numeric: 'auto' }).format(
+				dayOffset,
+				'day'
+			);
+		} catch {
+			return dayOffset === 0 ? 'Today' : 'Tomorrow';
+		}
+	}
+
+	function formatUndatedLabel() {
+		const language = ($configStore.language ?? 'en').split('-')[0]?.toLowerCase();
+		const labels: Record<string, string> = {
+			de: 'Ohne Datum',
+			en: 'Undated',
+			es: 'Sin fecha',
+			fr: 'Sans date',
+			it: 'Senza data',
+			nl: 'Zonder datum',
+			pt: 'Sem data'
+		};
+
+		return labels[language] ?? labels.en;
 	}
 
 	function formatTimeRange(startTime: string, endTime: string) {
@@ -44,7 +74,7 @@
 	function formatDayHeader(startTime: string) {
 		const startDate = new Date(startTime);
 		if (!isValid(startDate)) {
-			return 'Undated';
+			return formatUndatedLabel();
 		}
 
 		const timeZone = getCalendarTimeZone();
@@ -54,11 +84,11 @@
 		const eventDayKey = getCalendarDayKey(startDate, timeZone);
 
 		if (eventDayKey === getCalendarDayKey(today, timeZone)) {
-			return 'Today';
+			return formatRelativeCalendarDay(0);
 		}
 
 		if (eventDayKey === getCalendarDayKey(tomorrow, timeZone)) {
-			return 'Tomorrow';
+			return formatRelativeCalendarDay(1);
 		}
 
 		return formatInCalendarTimeZone(startDate, 'EEEE, MMM d', timeZone);
