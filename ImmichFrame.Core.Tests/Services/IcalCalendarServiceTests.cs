@@ -474,9 +474,136 @@ public class IcalCalendarServiceTests
             }));
     }
 
+    [Test]
+    public async Task GetAppointments_WhenFirstCachedEventPasses_PromotesNextEventOnRefresh()
+    {
+        var currentNow = new DateTimeOffset(2026, 4, 21, 8, 0, 0, TimeSpan.Zero);
+        var ics = """
+                  BEGIN:VCALENDAR
+                  VERSION:2.0
+                  PRODID:-//ImmichFrame.Tests//EN
+                  BEGIN:VEVENT
+                  UID:event-01
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260421T080000Z
+                  DTEND:20260421T083000Z
+                  SUMMARY:Event 01
+                  END:VEVENT
+                  BEGIN:VEVENT
+                  UID:event-02
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260421T090000Z
+                  DTEND:20260421T093000Z
+                  SUMMARY:Event 02
+                  END:VEVENT
+                  BEGIN:VEVENT
+                  UID:event-03
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260421T100000Z
+                  DTEND:20260421T103000Z
+                  SUMMARY:Event 03
+                  END:VEVENT
+                  BEGIN:VEVENT
+                  UID:event-04
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260421T110000Z
+                  DTEND:20260421T113000Z
+                  SUMMARY:Event 04
+                  END:VEVENT
+                  BEGIN:VEVENT
+                  UID:event-05
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260421T120000Z
+                  DTEND:20260421T123000Z
+                  SUMMARY:Event 05
+                  END:VEVENT
+                  BEGIN:VEVENT
+                  UID:event-06
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260421T130000Z
+                  DTEND:20260421T133000Z
+                  SUMMARY:Event 06
+                  END:VEVENT
+                  BEGIN:VEVENT
+                  UID:event-07
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260421T140000Z
+                  DTEND:20260421T143000Z
+                  SUMMARY:Event 07
+                  END:VEVENT
+                  BEGIN:VEVENT
+                  UID:event-08
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260421T150000Z
+                  DTEND:20260421T153000Z
+                  SUMMARY:Event 08
+                  END:VEVENT
+                  BEGIN:VEVENT
+                  UID:event-09
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260421T160000Z
+                  DTEND:20260421T163000Z
+                  SUMMARY:Event 09
+                  END:VEVENT
+                  BEGIN:VEVENT
+                  UID:event-10
+                  DTSTAMP:20260421T000000Z
+                  DTSTART:20260422T090000Z
+                  DTEND:20260422T093000Z
+                  SUMMARY:Event 10
+                  END:VEVENT
+                  END:VCALENDAR
+                  """;
+
+        var service = CreateCalendarService(ics, () => currentNow, lookaheadDays: 3, maxEvents: 9);
+
+        var initialAppointments = await service.GetAppointments();
+        currentNow = new DateTimeOffset(2026, 4, 21, 8, 31, 0, TimeSpan.Zero);
+        var refreshedAppointments = await service.GetAppointments();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(initialAppointments.Select(appointment => appointment.Summary), Is.EqualTo(new[]
+            {
+                "Event 01",
+                "Event 02",
+                "Event 03",
+                "Event 04",
+                "Event 05",
+                "Event 06",
+                "Event 07",
+                "Event 08",
+                "Event 09"
+            }));
+            Assert.That(refreshedAppointments.Select(appointment => appointment.Summary), Is.EqualTo(new[]
+            {
+                "Event 02",
+                "Event 03",
+                "Event 04",
+                "Event 05",
+                "Event 06",
+                "Event 07",
+                "Event 08",
+                "Event 09",
+                "Event 10"
+            }));
+        });
+    }
+
     private static IcalCalendarService CreateCalendarService(
         string ics,
         DateTimeOffset utcNow,
+        int lookaheadDays = 0,
+        int maxEvents = 5,
+        string calendarTimeZone = "UTC",
+        string sortDirection = "ascending")
+    {
+        return CreateCalendarService(ics, () => utcNow, lookaheadDays, maxEvents, calendarTimeZone, sortDirection);
+    }
+
+    private static IcalCalendarService CreateCalendarService(
+        string ics,
+        Func<DateTimeOffset> utcNowProvider,
         int lookaheadDays = 0,
         int maxEvents = 5,
         string calendarTimeZone = "UTC",
@@ -509,7 +636,7 @@ public class IcalCalendarServiceTests
             settingsProvider.Object,
             NullLogger<IcalCalendarService>.Instance,
             httpClientFactory.Object,
-            () => utcNow);
+            utcNowProvider);
     }
 
     private sealed class CaptureHttpMessageHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> handler)
