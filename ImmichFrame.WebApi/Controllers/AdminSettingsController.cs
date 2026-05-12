@@ -131,7 +131,19 @@ public class AdminSettingsController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
-        var snapshot = _settingsProvider.Update(document, sanitizedCustomCss, request.WeatherApiKey);
+        EffectiveSettingsSnapshot snapshot;
+        try
+        {
+            snapshot = _settingsProvider.Update(document, sanitizedCustomCss, request.WeatherApiKey);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogError(ex, "Failed to persist admin settings.");
+            return Problem(
+                title: "Failed to persist admin settings.",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status500InternalServerError);
+        }
 
         foreach (var session in _frameSessionRegistry.GetActiveSessions())
         {

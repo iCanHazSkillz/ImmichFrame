@@ -12,6 +12,8 @@ public class AdminManagedSettingsStoreOptions
 
 public interface IAdminManagedSettingsStore
 {
+    bool Exists();
+    DateTimeOffset? GetLastWriteTimeUtc();
     AdminManagedSettingsDocument LoadOrSeed(ServerSettings bootstrapSettings);
     void Save(AdminManagedSettingsDocument settings);
 }
@@ -24,6 +26,19 @@ public class AdminManagedSettingsStore(
     {
         WriteIndented = true
     };
+
+    public bool Exists()
+    {
+        return File.Exists(EnsurePathConfigured());
+    }
+
+    public DateTimeOffset? GetLastWriteTimeUtc()
+    {
+        var path = EnsurePathConfigured();
+        return File.Exists(path)
+            ? new DateTimeOffset(File.GetLastWriteTimeUtc(path), TimeSpan.Zero)
+            : null;
+    }
 
     public AdminManagedSettingsDocument LoadOrSeed(ServerSettings bootstrapSettings)
     {

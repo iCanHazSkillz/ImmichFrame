@@ -29,6 +29,7 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
     private readonly ServerSettings _bootstrapSettings;
     private readonly IAdminManagedSettingsStore _store;
     private readonly IAdminManagedSecretsStore _secretStore;
+    private readonly IEnvSettingsSync _envSettingsSync;
     private readonly ICustomCssStore _customCssStore;
     private readonly ILogger<EffectiveSettingsProvider> _logger;
     private AdminManagedSettingsDocument _managedSettingsDocument;
@@ -39,18 +40,23 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
         BootstrapServerSettingsHolder bootstrapSettingsHolder,
         IAdminManagedSettingsStore store,
         IAdminManagedSecretsStore secretStore,
+        IEnvSettingsSync envSettingsSync,
         ICustomCssStore customCssStore,
         ILogger<EffectiveSettingsProvider> logger)
     {
         _bootstrapSettings = ServerSettingsFactory.Clone(bootstrapSettingsHolder.Settings);
         _store = store;
         _secretStore = secretStore;
+        _envSettingsSync = envSettingsSync;
         _customCssStore = customCssStore;
         _logger = logger;
 
+        var adminSettingsExisted = _store.Exists();
+        var adminSettingsLastWriteUtc = _store.GetLastWriteTimeUtc();
         var storedSettings = _store.LoadOrSeed(_bootstrapSettings);
         _managedSettingsDocument = CloneManagedSettingsDocument(storedSettings);
         _managedSecretsDocument = CloneManagedSecretsDocument(_secretStore.Load());
+        ApplyStartupEnvironmentSync(adminSettingsExisted, adminSettingsLastWriteUtc);
         _snapshot = BuildSnapshot(
             1,
             _managedSettingsDocument,
@@ -117,6 +123,8 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
                     loadedCustomCss = nextSnapshot.CustomCss;
                 }
 
+                _envSettingsSync.Save(nextManagedDocument, weatherApiKey);
+
                 _managedSettingsDocument = nextManagedDocument;
                 _managedSecretsDocument = nextManagedSecrets;
                 _snapshot = nextSnapshot with { CustomCss = loadedCustomCss };
@@ -131,10 +139,10 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
                 }
                 catch (Exception rollbackEx)
                 {
-                    _logger.LogCritical(rollbackEx, "Failed to roll back admin-managed settings after custom CSS persistence failed.");
+                    _logger.LogCritical(rollbackEx, "Failed to roll back admin-managed settings after persistence failed.");
                 }
 
-                throw new InvalidOperationException("Failed to persist custom CSS.", ex);
+                throw new InvalidOperationException("Failed to persist admin settings.", ex);
             }
         }
     }
@@ -147,6 +155,54 @@ public sealed class EffectiveSettingsProvider : IWritableEffectiveSettingsProvid
     public long GetCurrentVersion()
     {
         return ((ISettingsSnapshotProvider)this).GetCurrentSnapshot().Version;
+    }
+
+    private void ApplyStartupEnvironmentSync(bool adminSettingsExisted, DateTimeOffset? adminSettingsLastWriteUtc)
+    {
+        if (!_envSettingsSync.IsConfigured)
+        {
+            return;
+        }
+
+        var envExists = _envSettingsSync.Exists();
+        var envLastWriteUtc = _envSettingsSync.GetLastWriteTimeUtc();
+        if (!adminSettingsExisted)
+        {
+            if (envExists)
+            {
+                ImportEnvironmentSettings();
+                _store.Save(CloneManagedSettingsDocument(_managedSettingsDocument));
+                _secretStore.Save(CloneManagedSecretsDocument(_managedSecretsDocument));
+            }
+
+            return;
+        }
+
+        if (!envExists)
+        {
+            return;
+        }
+
+        if (envExists && envLastWriteUtc.HasValue && adminSettingsLastWriteUtc.HasValue &&
+            envLastWriteUtc.Value > adminSettingsLastWriteUtc.Value)
+        {
+            ImportEnvironmentSettings();
+            _store.Save(CloneManagedSettingsDocument(_managedSettingsDocument));
+            _secretStore.Save(CloneManagedSecretsDocument(_managedSecretsDocument));
+            return;
+        }
+
+        _envSettingsSync.Save(_managedSettingsDocument);
+    }
+
+    private void ImportEnvironmentSettings()
+    {
+        var importResult = _envSettingsSync.ImportInto(_managedSettingsDocument);
+        if (importResult.WeatherApiKeyChanged)
+        {
+            _managedSecretsDocument.WeatherApiKey = importResult.WeatherApiKey;
+            _managedSecretsDocument.Normalize();
+        }
     }
 
     private EffectiveSettingsSnapshot BuildSnapshot(

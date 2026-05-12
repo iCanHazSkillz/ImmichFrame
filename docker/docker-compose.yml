@@ -4,13 +4,16 @@ services:
     container_name: immichframe
     image: ghcr.io/immichframe/immichframe:latest
     restart: on-failure
-    # volumes:
-    #   - PATH/TO/CONFIG:/app/Config
-    #   - PATH/TO/APPDATA:/app/App_Data
-    # custom CSS now lives in /app/App_Data/custom.css
+    volumes:
+      # - PATH/TO/CONFIG:/app/Config
+      # Mount the same .env file so /admin/settings can sync supported values back to it.
+      - ./.env:/app/Config/.env
+      # - PATH/TO/APPDATA:/app/App_Data
+      # custom CSS now lives in /app/App_Data/custom.css
     ports:
       - "8080:8080"
     env_file:
       - .env
     environment:
       TZ: "${TZ:-Etc/UTC}"
+      IMMICHFRAME_ENV_FILE_PATH: "/app/Config/.env"

@@ -9,6 +9,8 @@ services:
       - .env
     environment:
       TZ: "${TZ:-Etc/UTC}"
+      IMMICHFRAME_ENV_FILE_PATH: "/app/Config/.env"
     volumes:
       - ${Config}:/app/Config
+      - ./.env:/app/Config/.env
       - ${App_Data}:/app/App_Data

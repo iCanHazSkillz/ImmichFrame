@@ -37,11 +37,19 @@ services:
     restart: on-failure
     volumes:
       - PATH/TO/CONFIG:/app/Config
+      # Optional for .env users: lets /admin/settings sync supported values back to .env.
+      # If you use this, keep env_file pointing at the same host .env file.
+      # - ./.env:/app/Config/.env
     ports:
       - "8080:8080"
+    # env_file:
+    #   - .env
     environment:
       TZ: "Europe/Berlin"
+      # IMMICHFRAME_ENV_FILE_PATH: "/app/Config/.env"
 ```
+
+External `.env` edits are imported on container restart. Settings saved in `/admin/settings` are written back to the mounted `.env` file immediately for fields supported by both the flat `.env` format and the UI. The mounted `.env` file must be writable by the container user.
 
 [github-root]: https://github.com/immichframe/ImmichFrame/blob/main
 [example-json]: https://github.com/immichframe/ImmichFrame/blob/main/docker/Settings.example.json
