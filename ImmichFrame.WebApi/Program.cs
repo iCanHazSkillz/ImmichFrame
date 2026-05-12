@@ -74,6 +74,7 @@ var configPath = Environment.GetEnvironmentVariable("IMMICHFRAME_CONFIG_PATH") ?
         ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Config");
 var appDataPath = Environment.GetEnvironmentVariable("IMMICHFRAME_APP_DATA_PATH") ??
     Path.Combine(builder.Environment.ContentRootPath, "App_Data");
+var envFilePath = Environment.GetEnvironmentVariable("IMMICHFRAME_ENV_FILE_PATH");
 builder.Services.AddTransient<ConfigLoader>();
 builder.Services.AddSingleton(srv =>
     new BootstrapServerSettingsHolder(ServerSettingsFactory.Clone(srv.GetRequiredService<ConfigLoader>().LoadConfig(configPath))));
@@ -85,6 +86,10 @@ builder.Services.AddSingleton(new AdminManagedSecretsStoreOptions
 {
     StorePath = Path.Combine(appDataPath, "admin-secrets.json")
 });
+builder.Services.AddSingleton(new EnvSettingsSyncOptions
+{
+    EnvFilePath = envFilePath
+});
 builder.Services.AddSingleton(new CustomCssStoreOptions
 {
     StorePath = Path.Combine(appDataPath, "custom.css"),
@@ -92,6 +97,7 @@ builder.Services.AddSingleton(new CustomCssStoreOptions
 });
 builder.Services.AddSingleton<IAdminManagedSettingsStore, AdminManagedSettingsStore>();
 builder.Services.AddSingleton<IAdminManagedSecretsStore, AdminManagedSecretsStore>();
+builder.Services.AddSingleton<IEnvSettingsSync, EnvSettingsSync>();
 builder.Services.AddSingleton<ICustomCssStore, CustomCssStore>();
 builder.Services.AddSingleton<ICustomCssValidator, CustomCssValidator>();
 builder.Services.AddSingleton<EffectiveSettingsProvider>();

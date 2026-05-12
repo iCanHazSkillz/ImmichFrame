@@ -37,6 +37,25 @@ Runtime-admin settings are merged on top of the bootstrap config. In practice, t
 
 The `/admin/settings` page is now the recommended place to manage display settings, weather, calendars, webhooks, and non-secret account filters after the first startup.
 
+### Optional `.env` sync
+
+When using the flat `.env` configuration style, you can opt in to two-way sync for settings that are supported by both `.env` and `/admin/settings`.
+
+Set `IMMICHFRAME_ENV_FILE_PATH` to a writable path inside the container and bind mount the same host `.env` file there:
+
+```yaml
+env_file:
+  - .env
+environment:
+  IMMICHFRAME_ENV_FILE_PATH: /app/Config/.env
+volumes:
+  - ./.env:/app/Config/.env
+```
+
+With this enabled, external `.env` edits are imported on app restart when the `.env` file is newer than `App_Data/admin-settings.json`. Saves from `/admin/settings` write supported values back to the mounted `.env` file immediately. The app still stores runtime state in `App_Data/admin-settings.json`; `.env` sync is only for fields that the flat `.env` format can represent. Bootstrap and security fields such as `ImmichServerUrl`, `ApiKey`, `ApiKeyFile`, `AuthenticationSecret`, and `IMMICHFRAME_AUTH_BASIC_*` are not modified by the admin UI.
+
+The mounted `.env` file must be writable by the container user.
+
 ### Full configuration reference:
 
 :::warning

@@ -2,6 +2,7 @@ using System.Collections;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using ImmichFrame.WebApi.Models;
 using ImmichFrame.WebApi.Services;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -574,6 +575,144 @@ public class AdminSettingsControllerTests
         var stylesheetResponse = await _factory.CreateClient().GetAsync("/static/custom.css");
         stylesheetResponse.EnsureSuccessStatusCode();
         Assert.That(await stylesheetResponse.Content.ReadAsStringAsync(), Is.EqualTo(expectedCustomCss));
+    }
+
+    [Test]
+    public async Task Get_ImportsNewerEnvSettingsAtStartup()
+    {
+        var albumId = Guid.NewGuid();
+        var envPath = Path.Combine(_tempAppDataPath, ".env");
+        File.WriteAllText(envPath, $"""
+        Interval=120
+        ShowFavorites=true
+        Albums={albumId}
+        WeatherApiKey=from-env-file
+        """);
+        await WritePersistedAdminSettingsAsync(interval: 45, showFavorites: false);
+
+        var older = DateTime.UtcNow.AddMinutes(-10);
+        var newer = DateTime.UtcNow.AddMinutes(-5);
+        File.SetLastWriteTimeUtc(Path.Combine(_tempAppDataPath, "admin-settings.json"), older);
+        File.SetLastWriteTimeUtc(envPath, newer);
+
+        using var factory = CreateEnvSyncFactory(envPath);
+        var adminClient = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var response = await adminClient.GetFromJsonAsync<AdminSettingsResponseDto>("/api/admin/settings");
+
+        Assert.That(response, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(response!.General.Interval, Is.EqualTo(120));
+            Assert.That(response.Accounts[0].ShowFavorites, Is.True);
+            Assert.That(response.Accounts[0].Albums, Is.EqualTo(new[] { albumId }));
+        });
+
+        var secretJson = await File.ReadAllTextAsync(Path.Combine(_tempAppDataPath, "admin-secrets.json"));
+        Assert.That(secretJson, Does.Contain("from-env-file"));
+    }
+
+    [Test]
+    public async Task Get_ExportsNewerAdminSettingsToEnvAtStartup()
+    {
+        var albumId = Guid.NewGuid();
+        var envPath = Path.Combine(_tempAppDataPath, ".env");
+        File.WriteAllText(envPath, """
+        # Existing comment
+        Interval=10
+        ShowFavorites=false
+        """);
+        await WritePersistedAdminSettingsAsync(interval: 88, showFavorites: true, albumId: albumId);
+
+        var older = DateTime.UtcNow.AddMinutes(-10);
+        var newer = DateTime.UtcNow.AddMinutes(-5);
+        File.SetLastWriteTimeUtc(envPath, older);
+        File.SetLastWriteTimeUtc(Path.Combine(_tempAppDataPath, "admin-settings.json"), newer);
+
+        using var factory = CreateEnvSyncFactory(envPath);
+        var adminClient = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var response = await adminClient.GetFromJsonAsync<AdminSettingsResponseDto>("/api/admin/settings");
+        Assert.That(response, Is.Not.Null);
+
+        var env = await File.ReadAllTextAsync(envPath);
+        Assert.Multiple(() =>
+        {
+            Assert.That(env, Does.Contain("# Existing comment"));
+            Assert.That(env, Does.Contain("Interval=88"));
+            Assert.That(env, Does.Contain("ShowFavorites=true"));
+            Assert.That(env, Does.Contain($"Albums={albumId}"));
+            Assert.That(env, Does.Not.Contain("WidgetStackOrder="));
+        });
+    }
+
+    [Test]
+    public async Task Update_WritesSyncedSettingsToEnvFile()
+    {
+        var envPath = Path.Combine(_tempAppDataPath, ".env");
+        File.WriteAllText(envPath, """
+        # Keep me
+        Interval=10
+        """);
+
+        using var factory = CreateEnvSyncFactory(envPath);
+        var adminClient = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var albumId = Guid.NewGuid();
+        var updateRequest = CreateValidUpdateRequest(string.Empty);
+        updateRequest.General.Interval = 123;
+        updateRequest.General.WidgetStackOrder = ["calendar", "clock", "weather", "metadata"];
+        updateRequest.Accounts[0].Albums = [albumId];
+        updateRequest.WeatherApiKey = "updated-weather-key";
+
+        var response = await adminClient.PutAsJsonAsync("/api/admin/settings", updateRequest);
+        response.EnsureSuccessStatusCode();
+
+        var env = await File.ReadAllTextAsync(envPath);
+        Assert.Multiple(() =>
+        {
+            Assert.That(env, Does.Contain("# Keep me"));
+            Assert.That(env, Does.Contain("Interval=123"));
+            Assert.That(env, Does.Contain($"Albums={albumId}"));
+            Assert.That(env, Does.Contain("WeatherApiKey=updated-weather-key"));
+            Assert.That(env, Does.Not.Contain("WidgetStackOrder="));
+        });
+    }
+
+    [Test]
+    public async Task Update_ReturnsProblemAndRollsBackAdminJson_WhenEnvWriteFails()
+    {
+        var envPath = Path.Combine(_tempAppDataPath, "env-as-directory");
+        Directory.CreateDirectory(envPath);
+
+        using var factory = CreateEnvSyncFactory(envPath);
+        var adminClient = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            HandleCookies = true
+        });
+        await LoginAdminAsync(adminClient);
+
+        var updateRequest = CreateValidUpdateRequest(string.Empty);
+        updateRequest.General.Interval = 333;
+
+        var response = await adminClient.PutAsJsonAsync("/api/admin/settings", updateRequest);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.InternalServerError));
+        var persisted = await adminClient.GetFromJsonAsync<AdminSettingsResponseDto>("/api/admin/settings");
+        Assert.That(persisted, Is.Not.Null);
+        Assert.That(persisted!.General.Interval, Is.EqualTo(45));
     }
 
     [Test]
@@ -1238,6 +1377,75 @@ public class AdminSettingsControllerTests
             ImmichServerUrl = TestImmichServerUrl,
             ApiKey = TestApiKey
         });
+    }
+
+    private WebApplicationFactory<Program> CreateEnvSyncFactory(string envPath)
+    {
+        return _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureTestServices(services =>
+            {
+                services.AddSingleton(new EnvSettingsSyncOptions
+                {
+                    EnvFilePath = envPath
+                });
+            });
+        });
+    }
+
+    private async Task WritePersistedAdminSettingsAsync(int interval, bool showFavorites, Guid? albumId = null)
+    {
+        var document = new AdminManagedSettingsDocument
+        {
+            General = new AdminManagedGeneralSettings
+            {
+                Interval = interval,
+                ShowClock = true,
+                ShowWeather = false,
+                ShowCalendar = false,
+                ClockFormat = "hh:mm",
+                ClockDateFormat = "eee, MMM d",
+                PhotoDateFormat = "MM/dd/yyyy",
+                ImageLocationFormat = "City,State,Country",
+                Layout = "splitview",
+                Language = "en",
+                ShowProgressBar = true,
+                ShowPhotoDate = true,
+                ShowImageDesc = true,
+                ShowPeopleDesc = true,
+                ShowTagsDesc = true,
+                ShowAlbumName = true,
+                ShowImageLocation = true,
+                ShowWeatherDescription = true,
+                ImageZoom = true,
+                ImagePan = false,
+                ImageFill = false,
+                PlayAudio = false,
+                Style = "none",
+                Webcalendars = [],
+                WidgetStackOrder = ["metadata", "clock", "weather", "calendar"]
+            },
+            Accounts =
+            [
+                new AdminManagedAccountSettings
+                {
+                    AccountIdentifier = CreateAccountIdentifier(),
+                    ShowFavorites = showFavorites,
+                    ShowMemories = false,
+                    ShowArchived = false,
+                    ShowVideos = false,
+                    Albums = albumId.HasValue ? [albumId.Value] : [],
+                    ExcludedAlbums = [],
+                    People = [],
+                    Tags = []
+                }
+            ]
+        };
+
+        document.Normalize();
+        await File.WriteAllTextAsync(
+            Path.Combine(_tempAppDataPath, "admin-settings.json"),
+            JsonSerializer.Serialize(document, new JsonSerializerOptions { WriteIndented = true }));
     }
 
     private static AdminSettingsUpdateRequest CreateValidUpdateRequest(string customCss)
