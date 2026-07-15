@@ -46,8 +46,9 @@
         // full ISO 8601 datetime. NSwag serializes the underlying DateTimeOffset with the "s" format
         // (e.g. "2026-07-15T14:30:00"), which Immich v3 rejects with a 400 ("expected ISO date
         // string (YYYY-MM-DD)"). Truncate the value down to just the date before sending.
-        // Only the "for" query parameter is affected; date filters for search go through the JSON
-        // body, which Newtonsoft serializes separately.
+        // Only the "for" query parameter on GET .../memories is affected; /memories/statistics also
+        // declares a "for" parameter but is never called from this project, so it is left alone.
+        // Date filters for search go through the JSON body, which Newtonsoft serializes separately.
         partial void PrepareRequest(HttpClient client, HttpRequestMessage request, System.Text.StringBuilder urlBuilder)
         {
             TruncateToDate(urlBuilder, "for");
@@ -56,6 +57,15 @@
         private static void TruncateToDate(System.Text.StringBuilder urlBuilder, string parameterName)
         {
             var url = urlBuilder.ToString();
+
+            // RequestUri isn't assigned yet at this point in the generated client, so the path has
+            // to be read off the builder itself. Scope the rewrite to exactly GET .../memories so it
+            // can't accidentally mangle an unrelated "for" parameter on another endpoint (e.g. the
+            // unused /memories/statistics, which ends in a different path segment and won't match).
+            var queryStart = url.IndexOf('?');
+            var path = queryStart < 0 ? url : url.Substring(0, queryStart);
+            if (!path.EndsWith("/memories", StringComparison.Ordinal)) return;
+
             var token = parameterName + "=";
 
             var idx = url.IndexOf("?" + token, StringComparison.Ordinal);
@@ -69,10 +79,17 @@
             var encodedValue = url.Substring(valueStart, valueEnd - valueStart);
             var rawValue = Uri.UnescapeDataString(encodedValue);
 
-            // NSwag serializes DateTimeOffset as "yyyy-MM-ddTHH:mm:ss..."; keep only the date part.
-            var dateOnly = rawValue.Split('T')[0];
-            if (dateOnly == rawValue) return;
+            // Only rewrite values that are a full ISO 8601 datetime with a time component (NSwag
+            // serializes DateTimeOffset as "yyyy-MM-ddTHH:mm:ss..."); anything else, including an
+            // already-bare date, is left untouched.
+            if (!rawValue.Contains('T') ||
+                !DateTimeOffset.TryParse(rawValue, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None, out _))
+            {
+                return;
+            }
 
+            var dateOnly = rawValue.Split('T')[0];
             var fixedValue = Uri.EscapeDataString(dateOnly);
             if (fixedValue == encodedValue) return;
 
