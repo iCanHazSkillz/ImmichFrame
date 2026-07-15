@@ -31,7 +31,7 @@ public class BloomFilterAssetAccountTrackerTests
             .Select(async index =>
             {
                 await startGate.Task;
-                await tracker.RecordAssetLocation(accountLogic, $"asset-{index}");
+                await tracker.RecordAssetLocation(accountLogic, Guid.NewGuid());
             })
             .ToList();
 
@@ -59,12 +59,13 @@ public class BloomFilterAssetAccountTrackerTests
             });
 
         var tracker = new BloomFilterAssetAccountTracker(NullLogger<BloomFilterAssetAccountTracker>.Instance);
+        var assetId = Guid.NewGuid();
 
         Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await tracker.RecordAssetLocation(account.Object, "asset-after-failure"));
+            await tracker.RecordAssetLocation(account.Object, assetId));
 
         Assert.DoesNotThrowAsync(async () =>
-            await tracker.RecordAssetLocation(account.Object, "asset-after-failure"));
+            await tracker.RecordAssetLocation(account.Object, assetId));
         Assert.That(getTotalAssetsCalls, Is.EqualTo(2));
     }
 }

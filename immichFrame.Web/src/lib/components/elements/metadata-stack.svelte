@@ -2,7 +2,7 @@
 	import {
 		type AlbumResponseDto,
 		type AssetResponseDto,
-		type PersonWithFacesResponseDto
+		type PersonResponseDto
 	} from '$lib/immichFrameApi';
 	import {
 		differenceInDays,
@@ -97,7 +97,7 @@
 		return differenceInYears(capturedAt, parsedBirthDate);
 	}
 
-	function formatPerson(person: PersonWithFacesResponseDto, asset: AssetResponseDto) {
+	function formatPerson(person: PersonResponseDto, asset: AssetResponseDto) {
 		const name = person.name?.trim();
 		if (!name) {
 			return null;
@@ -221,7 +221,7 @@
 							<Icon path={mdiAccount} class="info-icon" />
 							<span class="info-text" class:short-text={split}>
 								{availablePeople
-									.map((person: PersonWithFacesResponseDto) => formatPerson(person, entry.asset))
+									.map((person: PersonResponseDto) => formatPerson(person, entry.asset))
 									.filter(Boolean)
 									.join(', ')}
 							</span>

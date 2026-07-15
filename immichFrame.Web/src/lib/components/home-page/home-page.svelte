@@ -915,11 +915,8 @@
 					assetType: assetResponse.type
 				});
 				if (req.status != 200) {
-					const failureKind =
-						req.status === 406 ? 'retryable' : statusToFailureKind(req.status);
-
 					throw createFrameRequestError(
-						failureKind,
+						statusToFailureKind(req.status),
 						`Failed to load asset ${assetResponse.id}: status ${req.status}`,
 						req.status
 					);

@@ -185,7 +185,7 @@ public class AdminSettingsController : ControllerBase
     {
         try
         {
-            await immichApi.GetAlbumInfoAsync(albumId, null, true, ct);
+            await immichApi.GetAlbumInfoAsync(albumId, null, null, ct);
             return new AdminAlbumValidationResultDto
             {
                 AlbumId = albumId,

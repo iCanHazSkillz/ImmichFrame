@@ -130,14 +130,14 @@ public class AlbumAssetsPoolTests
         const string responseBody = """{"message":"Not found or no album.read access","correlationId":"abc"}""";
 
         _mockAccountSettings.SetupGet(s => s.Albums).Returns(new List<Guid> { invalidAlbumId, validAlbumId });
-        _mockImmichApi.Setup(api => api.GetAlbumInfoAsync(invalidAlbumId, null, null, It.IsAny<CancellationToken>()))
+        _mockImmichApi.Setup(api => api.SearchAssetsAsync(It.IsAny<string>(), It.IsAny<string>(), It.Is<MetadataSearchDto>(d => d.AlbumIds.Contains(invalidAlbumId)), It.IsAny<CancellationToken>()))
             .ThrowsAsync(CreateApiException(400, responseBody));
-        _mockImmichApi.Setup(api => api.GetAlbumInfoAsync(validAlbumId, null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AlbumResponseDto { Assets = new List<AssetResponseDto> { validAsset } });
+        _mockImmichApi.Setup(api => api.SearchAssetsAsync(It.IsAny<string>(), It.IsAny<string>(), It.Is<MetadataSearchDto>(d => d.AlbumIds.Contains(validAlbumId)), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SearchResponseDto { Assets = new SearchAssetResponseDto { Items = new List<AssetResponseDto> { validAsset }, Total = 1 } });
 
         var result = (await _albumAssetsPool.GetAssets(25)).ToList();
 
-        Assert.That(result.Select(asset => asset.Id), Is.EqualTo(new[] { "valid" }));
+        Assert.That(result.Select(asset => asset.Id), Is.EqualTo(new[] { FixtureHelpers.GuidFor("valid") }));
         VerifyWarningLogged(invalidAlbumId, "included", TestImmichServerUrl, 400, responseBody, "abc");
     }
 
@@ -148,7 +148,7 @@ public class AlbumAssetsPoolTests
         const string responseBody = """{"message":"Not found"}""";
 
         _mockAccountSettings.SetupGet(s => s.Albums).Returns(new List<Guid> { invalidAlbumId });
-        _mockImmichApi.Setup(api => api.GetAlbumInfoAsync(invalidAlbumId, null, null, It.IsAny<CancellationToken>()))
+        _mockImmichApi.Setup(api => api.SearchAssetsAsync(It.IsAny<string>(), It.IsAny<string>(), It.Is<MetadataSearchDto>(d => d.AlbumIds.Contains(invalidAlbumId)), It.IsAny<CancellationToken>()))
             .ThrowsAsync(CreateApiException(404, responseBody));
 
         var result = (await _albumAssetsPool.GetAssets(25)).ToList();
@@ -167,14 +167,14 @@ public class AlbumAssetsPoolTests
 
         _mockAccountSettings.SetupGet(s => s.Albums).Returns(new List<Guid> { albumId });
         _mockAccountSettings.SetupGet(s => s.ExcludedAlbums).Returns(new List<Guid> { excludedAlbumId });
-        _mockImmichApi.Setup(api => api.GetAlbumInfoAsync(albumId, null, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AlbumResponseDto { Assets = new List<AssetResponseDto> { asset } });
-        _mockImmichApi.Setup(api => api.GetAlbumInfoAsync(excludedAlbumId, null, null, It.IsAny<CancellationToken>()))
+        _mockImmichApi.Setup(api => api.SearchAssetsAsync(It.IsAny<string>(), It.IsAny<string>(), It.Is<MetadataSearchDto>(d => d.AlbumIds.Contains(albumId)), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SearchResponseDto { Assets = new SearchAssetResponseDto { Items = new List<AssetResponseDto> { asset }, Total = 1 } });
+        _mockImmichApi.Setup(api => api.SearchAssetsAsync(It.IsAny<string>(), It.IsAny<string>(), It.Is<MetadataSearchDto>(d => d.AlbumIds.Contains(excludedAlbumId)), It.IsAny<CancellationToken>()))
             .ThrowsAsync(CreateApiException(400, responseBody));
 
         var result = (await _albumAssetsPool.GetAssets(25)).ToList();
 
-        Assert.That(result.Select(resultAsset => resultAsset.Id), Is.EqualTo(new[] { "included" }));
+        Assert.That(result.Select(resultAsset => resultAsset.Id), Is.EqualTo(new[] { FixtureHelpers.GuidFor("included") }));
         VerifyWarningLogged(excludedAlbumId, "excluded", TestImmichServerUrl, 400, responseBody);
     }
 
@@ -184,7 +184,7 @@ public class AlbumAssetsPoolTests
         var albumId = Guid.NewGuid();
 
         _mockAccountSettings.SetupGet(s => s.Albums).Returns(new List<Guid> { albumId });
-        _mockImmichApi.Setup(api => api.GetAlbumInfoAsync(albumId, null, null, It.IsAny<CancellationToken>()))
+        _mockImmichApi.Setup(api => api.SearchAssetsAsync(It.IsAny<string>(), It.IsAny<string>(), It.Is<MetadataSearchDto>(d => d.AlbumIds.Contains(albumId)), It.IsAny<CancellationToken>()))
             .ThrowsAsync(CreateApiException(500, """{"message":"server error"}"""));
 
         Assert.ThrowsAsync<ApiException>(async () => await _albumAssetsPool.GetAssets(25));
