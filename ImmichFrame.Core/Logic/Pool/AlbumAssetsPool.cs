@@ -35,6 +35,11 @@ public class AlbumAssetsPool : CachingApiAssetsPool
                         WithPeople = true,
                     };
 
+                    if (!AccountSettings.ShowVideos)
+                    {
+                        metadataBody.Type = AssetTypeEnum.IMAGE;
+                    }
+
                     SearchResponseDto searchResponse;
                     try
                     {

@@ -29,9 +29,11 @@
 		showInfo
 	}: Props = $props();
 
-	function shortcuts(node: any, shortcutList: any[]) {
+	function shortcuts(node: any, initialShortcutList: any[]) {
+		let currentShortcutList = initialShortcutList;
+
 		function handleKeyDown(event: { key: any; preventDefault: () => void }) {
-			const shortcut = shortcutList.find((s) => s.key === event.key);
+			const shortcut = currentShortcutList.find((s) => s.key === event.key);
 			if (shortcut && shortcut.action) {
 				event.preventDefault();
 				shortcut.action();
@@ -41,6 +43,9 @@
 		window.addEventListener('keydown', handleKeyDown);
 
 		return {
+			update(newShortcutList: any[]) {
+				currentShortcutList = newShortcutList;
+			},
 			destroy() {
 				window.removeEventListener('keydown', handleKeyDown);
 			}

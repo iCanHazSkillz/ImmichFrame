@@ -36,8 +36,10 @@ public class BloomFilterAssetAccountTracker(ILogger<BloomFilterAssetAccountTrack
         return FilterBuilder.Build(await account.GetTotalAssets());
     }
 
-    public T ForAsset<T>(Guid assetId, Func<IAccountImmichFrameLogic, T> f)
+    public async Task<T> ForAsset<T>(Guid assetId, Func<IAccountImmichFrameLogic, Task<T>> f)
     {
+        Exception? lastFailure = null;
+
         foreach (var entry in logicToFilter)
         {
             var filterTask = entry.Value.Value;
@@ -48,16 +50,19 @@ public class BloomFilterAssetAccountTracker(ILogger<BloomFilterAssetAccountTrack
             {
                 try
                 {
-                    return f(entry.Key);
+                    return await f(entry.Key);
                 }
                 catch (Exception e)
                 {
+                    lastFailure = e;
                     _logger.LogWarning(e, "Failed to locate asset {assetId} in {entry.Key}. Must be false positive, trying next account.", assetId, entry.Key);
                 }
             }
         }
 
         _logger.LogError("Failed to locate account for asset {assetId}", assetId);
-        throw new AssetNotFoundException();
+        throw lastFailure != null
+            ? new AssetNotFoundException("Asset not found.", lastFailure)
+            : new AssetNotFoundException();
     }
 }

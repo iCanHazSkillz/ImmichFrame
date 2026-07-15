@@ -37,9 +37,9 @@ public static class AssetHelper
                     break;
                 }
 
-                itemsInPage = searchResponse.Assets?.Items.Count ?? 0;
+                itemsInPage = searchResponse.Assets?.Items?.Count ?? 0;
 
-                if (searchResponse.Assets != null)
+                if (searchResponse.Assets?.Items != null)
                 {
                     excludedAlbumAssets.AddRange(searchResponse.Assets.Items);
                 }

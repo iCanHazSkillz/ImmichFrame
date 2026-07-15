@@ -25,7 +25,7 @@ public class PersonAssetsPool : CachingApiAssetsPool
         {
             int page = 1;
             int batchSize = 1000;
-            long total;
+            int itemsInPage;
             do
             {
                 var metadataBody = new MetadataSearchDto
@@ -44,11 +44,11 @@ public class PersonAssetsPool : CachingApiAssetsPool
 
                 var personInfo = await ImmichApi.SearchAssetsAsync(null, null, metadataBody, ct);
 
-                total = personInfo.Assets.Total;
+                itemsInPage = personInfo.Assets.Items.Count;
 
                 personAssets.AddRange(personInfo.Assets.Items);
                 page++;
-            } while (total == batchSize);
+            } while (itemsInPage == batchSize);
         }
 
         return personAssets;

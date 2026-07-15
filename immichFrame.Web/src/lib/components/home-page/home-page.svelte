@@ -648,15 +648,20 @@
 
 	let isHandlingAssetTransition = $state(false);
 	let transitionEpoch = 0;
-	let pendingTransition: { previous: boolean; instant: boolean } | null = $state(null);
+	let pendingTransition: { previous: boolean; instant: boolean; isErrorRecovery: boolean } | null =
+		$state(null);
 
-	const handleDone = async (previous: boolean = false, instant: boolean = false) => {
+	const handleDone = async (
+		previous: boolean = false,
+		instant: boolean = false,
+		isErrorRecovery: boolean = false
+	) => {
 		if (adminStopped || connectivityState === 'reconnecting') {
 			return;
 		}
 
 		if (isHandlingAssetTransition) {
-			pendingTransition = { previous, instant };
+			pendingTransition = { previous, instant, isErrorRecovery };
 			return;
 		}
 
@@ -674,9 +679,9 @@
 				// Bump the epoch so the original (still-awaiting) transition becomes a no-op
 				// when/if it eventually resolves, and force a fresh advance.
 				transitionEpoch++;
-				const next = pendingTransition ?? { previous: false, instant: true };
+				const next = pendingTransition ?? { previous: false, instant: true, isErrorRecovery: false };
 				pendingTransition = null;
-				handleDone(next.previous, next.instant).catch((err) => {
+				handleDone(next.previous, next.instant, next.isErrorRecovery).catch((err) => {
 					console.error('handleDone failed:', err);
 					isHandlingAssetTransition = false;
 				});
@@ -698,7 +703,9 @@
 
 			await assetComponent?.play?.();
 			void progressBar.play();
-			consecutiveErrorSkips = 0;
+			if (!isErrorRecovery) {
+				consecutiveErrorSkips = 0;
+			}
 			await syncFrameSession();
 		} finally {
 			if (currentEpoch === transitionEpoch) {
@@ -708,7 +715,7 @@
 				if (pendingTransition) {
 					const next = pendingTransition;
 					pendingTransition = null;
-					handleDone(next.previous, next.instant).catch((err) => {
+					handleDone(next.previous, next.instant, next.isErrorRecovery).catch((err) => {
 						console.error('handleDone failed:', err);
 						isHandlingAssetTransition = false;
 					});
@@ -1306,6 +1313,7 @@
 						return;
 					}
 
+					clearTimeout(videoStallTimeout);
 					resumeCurrentDisplayClock();
 					await progressBar.play();
 					await syncFrameSession();
@@ -1323,8 +1331,11 @@
 						return;
 					}
 
-					await handleDone(false, true);
-					errorSkipScheduled = false;
+					try {
+						await handleDone(false, true, true);
+					} finally {
+						errorSkipScheduled = false;
+					}
 				}}
 			/>
 		</div>

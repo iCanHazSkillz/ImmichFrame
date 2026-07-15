@@ -39,7 +39,7 @@ public class MultiImmichFrameLogicDelegate : IImmichFrameLogic
         => GetState().AccountSelectionStrategy.ForAsset(assetId, async logic => (await logic.GetAssetInfoById(assetId)).WithAccount(logic));
 
     public Task<IEnumerable<AssetFaceResponseDto>> GetAssetFacesById(Guid assetId)
-        => GetState().AccountSelectionStrategy.ForAsset(assetId, async logic => await logic.GetAssetFacesById(assetId));
+        => GetState().AccountSelectionStrategy.ForAsset(assetId, logic => logic.GetAssetFacesById(assetId));
 
 
     public Task<IEnumerable<AlbumResponseDto>> GetAlbumInfoById(Guid assetId)

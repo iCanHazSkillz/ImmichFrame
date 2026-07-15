@@ -86,7 +86,7 @@ General:
   CalendarMaxEvents: 5  # int, 1-10
   # Calendar event ordering.
   CalendarSortDirection: 'ascending'  # ascending | descending
-  # Interval in hours. Determines how often images are pulled from a album/person in immich.
+  # Interval in hours. Determines how often images are pulled from an album/person in immich.
   RefreshAlbumPeopleInterval: 12  # int
   # Date format. See https://date-fns.org/v4.1.0/docs/format for more information.
   PhotoDateFormat: 'MM/dd/yyyy'  # string
