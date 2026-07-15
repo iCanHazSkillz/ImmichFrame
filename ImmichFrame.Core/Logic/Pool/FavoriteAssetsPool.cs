@@ -17,7 +17,7 @@ public class FavoriteAssetsPool : CachingApiAssetsPool
 
         int page = 1;
         int batchSize = 1000;
-        int total;
+        long total;
         do
         {
             var metadataBody = new MetadataSearchDto
@@ -34,7 +34,7 @@ public class FavoriteAssetsPool : CachingApiAssetsPool
                 metadataBody.Type = AssetTypeEnum.IMAGE;
             }
 
-            var favoriteInfo = await ImmichApi.SearchAssetsAsync(metadataBody, ct);
+            var favoriteInfo = await ImmichApi.SearchAssetsAsync(null, null, metadataBody, ct);
 
             total = favoriteInfo.Assets.Total;
 

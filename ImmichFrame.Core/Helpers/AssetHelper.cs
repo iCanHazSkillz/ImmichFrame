@@ -14,21 +14,38 @@ public static class AssetHelper
 
         foreach (var albumId in accountSettings?.ExcludedAlbums ?? new())
         {
-            AlbumResponseDto albumInfo;
-            try
+            int page = 1;
+            int batchSize = 1000;
+            int itemsInPage;
+            do
             {
-                albumInfo = await immichApi.GetAlbumInfoAsync(albumId, null, null, ct);
-            }
-            catch (ApiException ex) when (IsExpectedAlbumLookupFailure(ex))
-            {
-                LogSkippedAlbum(logger, albumId, accountSettings?.ImmichServerUrl, "excluded", ex);
-                continue;
-            }
+                var metadataBody = new MetadataSearchDto
+                {
+                    Page = page,
+                    Size = batchSize,
+                    AlbumIds = [albumId]
+                };
 
-            if (albumInfo.Assets != null)
-            {
-                excludedAlbumAssets.AddRange(albumInfo.Assets);
-            }
+                SearchResponseDto searchResponse;
+                try
+                {
+                    searchResponse = await immichApi.SearchAssetsAsync(null, null, metadataBody, ct);
+                }
+                catch (ApiException ex) when (IsExpectedAlbumLookupFailure(ex))
+                {
+                    LogSkippedAlbum(logger, albumId, accountSettings?.ImmichServerUrl, "excluded", ex);
+                    break;
+                }
+
+                itemsInPage = searchResponse.Assets?.Items.Count ?? 0;
+
+                if (searchResponse.Assets != null)
+                {
+                    excludedAlbumAssets.AddRange(searchResponse.Assets.Items);
+                }
+
+                page++;
+            } while (itemsInPage == batchSize);
         }
 
         return excludedAlbumAssets;

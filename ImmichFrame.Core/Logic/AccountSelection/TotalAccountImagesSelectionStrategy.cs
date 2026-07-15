@@ -5,15 +5,11 @@ using Microsoft.Extensions.Logging;
 
 namespace ImmichFrame.Core.Logic.AccountSelection;
 
-public class TotalAccountImagesSelectionStrategy(ILogger<TotalAccountImagesSelectionStrategy> _logger, IAssetAccountTracker _tracker) : IAccountSelectionStrategy
+public class TotalAccountImagesSelectionStrategy(
+    ILogger<TotalAccountImagesSelectionStrategy> _logger,
+    IAssetAccountTracker _tracker,
+    IList<IAccountImmichFrameLogic> _accounts) : IAccountSelectionStrategy
 {
-    private IList<IAccountImmichFrameLogic> _accounts = [];
-
-    public void Initialize(IList<IAccountImmichFrameLogic> accounts)
-    {
-        _accounts = accounts;
-    }
-
     public async Task<(IAccountImmichFrameLogic, AssetResponseDto)?> GetNextAsset()
     {
         if (_accounts.Count == 0)
@@ -28,14 +24,14 @@ public class TotalAccountImagesSelectionStrategy(ILogger<TotalAccountImagesSelec
             _logger.LogDebug("No account could be selected");
             return null;
         }
-        
+
         var asset = await chosen.GetNextAsset();
         if (asset != null)
         {
             await _tracker.RecordAssetLocation(chosen, asset.Id);
             return (chosen, asset);
         }
-        
+
         _logger.LogDebug("No next asset found");
         return null;
     }
@@ -49,6 +45,13 @@ public class TotalAccountImagesSelectionStrategy(ILogger<TotalAccountImagesSelec
     private async Task<IList<double>> GetProportions(IList<IAccountImmichFrameLogic> accounts)
     {
         var (totals, sum) = await GetWeights(accounts);
+        if (sum == 0)
+        {
+            // No account reported any assets — avoid 0/0 NaN proportions; uniform weights
+            // keep the (empty) batches intact.
+            return accounts.Select(_ => 1d).ToList();
+        }
+
         return totals.Select(t => (double)t / sum).ToList();
     }
 
@@ -106,5 +109,5 @@ public class TotalAccountImagesSelectionStrategy(ILogger<TotalAccountImagesSelec
     }
 
     public T ForAsset<T>(Guid assetId, Func<IAccountImmichFrameLogic, T> f)
-        => _tracker.ForAsset(assetId.ToString(), f);
+        => _tracker.ForAsset(assetId, f);
 }

@@ -73,6 +73,15 @@ namespace ImmichFrame.WebApi.Controllers
             }
         }
 
+        [HttpGet("{id}/AssetFaces", Name = "GetAssetFaces")]
+        public async Task<IEnumerable<AssetFaceResponseDto>> GetAssetFaces(Guid id, string clientIdentifier = "")
+        {
+            var sanitizedClientIdentifier = clientIdentifier.SanitizeString();
+            _logger.LogDebug("AssetFaces '{id}' requested by '{sanitizedClientIdentifier}'", id, sanitizedClientIdentifier);
+
+            return await _logic.GetAssetFacesById(id);
+        }
+
         [HttpGet("{id}/AlbumInfo", Name = "GetAlbumInfo")]
         public async Task<ActionResult<List<AlbumResponseDto>>> GetAlbumInfo(Guid id, string clientIdentifier = "")
         {
@@ -189,8 +198,8 @@ namespace ImmichFrame.WebApi.Controllers
                 if (randomAsset == null)
                     throw new AssetNotFoundException("No image asset was found");
 
-                var asset = await _logic.GetAsset(new Guid(randomAsset.Id), AssetTypeEnum.IMAGE);
-                var notification = new AssetRequestedNotification(new Guid(randomAsset.Id), sanitizedClientIdentifier);
+                var asset = await _logic.GetAsset(randomAsset.Id, AssetTypeEnum.IMAGE);
+                var notification = new AssetRequestedNotification(randomAsset.Id, sanitizedClientIdentifier);
                 _ = _logic.SendWebhookNotification(notification);
 
                 string randomImageBase64;

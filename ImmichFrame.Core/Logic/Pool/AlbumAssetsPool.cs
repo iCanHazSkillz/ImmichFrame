@@ -21,21 +21,36 @@ public class AlbumAssetsPool : CachingApiAssetsPool
         {
             foreach (var albumId in albums)
             {
-                AlbumResponseDto albumInfo;
-                try
+                int page = 1;
+                int batchSize = 1000;
+                int itemsInPage;
+                do
                 {
-                    albumInfo = await ImmichApi.GetAlbumInfoAsync(albumId, null, null, ct);
-                }
-                catch (ApiException ex) when (AssetHelper.IsExpectedAlbumLookupFailure(ex))
-                {
-                    AssetHelper.LogSkippedAlbum(Logger, albumId, AccountSettings.ImmichServerUrl, "included", ex);
-                    continue;
-                }
+                    var metadataBody = new MetadataSearchDto
+                    {
+                        Page = page,
+                        Size = batchSize,
+                        AlbumIds = [albumId],
+                        WithExif = true,
+                        WithPeople = true,
+                    };
 
-                if (albumInfo.Assets != null)
-                {
-                    albumAssets.AddRange(albumInfo.Assets);
-                }
+                    SearchResponseDto searchResponse;
+                    try
+                    {
+                        searchResponse = await ImmichApi.SearchAssetsAsync(null, null, metadataBody, ct);
+                    }
+                    catch (ApiException ex) when (AssetHelper.IsExpectedAlbumLookupFailure(ex))
+                    {
+                        AssetHelper.LogSkippedAlbum(Logger, albumId, AccountSettings.ImmichServerUrl, "included", ex);
+                        break;
+                    }
+
+                    itemsInPage = searchResponse.Assets.Items.Count;
+
+                    albumAssets.AddRange(searchResponse.Assets.Items);
+                    page++;
+                } while (itemsInPage == batchSize);
             }
         }
 

@@ -8,7 +8,7 @@
 		location?: ProgressBarLocation;
 		hidden?: boolean;
 		duration?: number;
-		onDone: () => void;
+		onDone: () => void | Promise<void>;
 		onPlaying?: () => void;
 		onPaused?: () => void;
 	}

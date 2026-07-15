@@ -11,14 +11,14 @@ public class MultiImmichFrameLogicDelegate : IImmichFrameLogic
 {
     private readonly object _sync = new();
     private readonly ISettingsSnapshotProvider _settingsProvider;
-    private readonly Func<IAccountSelectionStrategy> _accountSelectionStrategyFactory;
+    private readonly Func<IList<IAccountImmichFrameLogic>, IAccountSelectionStrategy> _accountSelectionStrategyFactory;
     private DelegateState? _state;
     private readonly ILogger<MultiImmichFrameLogicDelegate> _logger;
 
     public MultiImmichFrameLogicDelegate(
         ISettingsSnapshotProvider settingsProvider,
         Func<IAccountSettings, IAccountImmichFrameLogic> logicFactory,
-        Func<IAccountSelectionStrategy> accountSelectionStrategyFactory,
+        Func<IList<IAccountImmichFrameLogic>, IAccountSelectionStrategy> accountSelectionStrategyFactory,
         ILogger<MultiImmichFrameLogicDelegate> logger)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -37,6 +37,9 @@ public class MultiImmichFrameLogicDelegate : IImmichFrameLogic
 
     public Task<AssetResponseDto> GetAssetInfoById(Guid assetId)
         => GetState().AccountSelectionStrategy.ForAsset(assetId, async logic => (await logic.GetAssetInfoById(assetId)).WithAccount(logic));
+
+    public Task<IEnumerable<AssetFaceResponseDto>> GetAssetFacesById(Guid assetId)
+        => GetState().AccountSelectionStrategy.ForAsset(assetId, async logic => await logic.GetAssetFacesById(assetId));
 
 
     public Task<IEnumerable<AlbumResponseDto>> GetAlbumInfoById(Guid assetId)
@@ -78,8 +81,7 @@ public class MultiImmichFrameLogicDelegate : IImmichFrameLogic
         var accountToDelegate = settings.Accounts
             .ToFrozenDictionary(keySelector: account => account, elementSelector: LogicFactory);
 
-        var accountSelectionStrategy = _accountSelectionStrategyFactory();
-        accountSelectionStrategy.Initialize(accountToDelegate.Values.ToList());
+        var accountSelectionStrategy = _accountSelectionStrategyFactory(accountToDelegate.Values.ToList());
 
         return new DelegateState(snapshot.Version, settings, accountToDelegate, accountSelectionStrategy);
     }

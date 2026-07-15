@@ -38,7 +38,7 @@
 	} from '$lib/widget-layout';
 
 	interface AssetsState {
-		assets: [string, api.AssetResponseDto, api.AlbumResponseDto[]][];
+		assets: [string, api.AssetResponseDto, api.AssetFaceResponseDto[], api.AlbumResponseDto[]][];
 		error: boolean;
 		loaded: boolean;
 		split: boolean;
@@ -70,6 +70,9 @@
 	const COMMAND_POLL_INTERVAL_MS = 2_000;
 	const MAX_DISPLAY_HISTORY = 50;
 	const RECONNECT_PROBE_INTERVAL_MS = 1_500;
+	const TRANSITION_WATCHDOG_MS = 10000;
+	const VIDEO_STALL_MS = 15000;
+	const CURSOR_HIDE_MS = 2000;
 
 	let assetHistory: api.AssetResponseDto[] = [];
 	let assetBacklog: api.AssetResponseDto[] = [];
@@ -88,6 +91,10 @@
 	let assetComponent: AssetComponentInstance = $state() as AssetComponentInstance;
 	let currentDuration: number = $state($configStore.interval ?? 20);
 	let activeDisplayGeneration: number = $state(0);
+	let consecutiveErrorSkips = 0;
+	let errorSkipScheduled = false;
+	let watchdogTimer: number | undefined;
+	let videoStallTimeout: number | undefined;
 	let userPaused: boolean = $state(false);
 
 	let infoVisible: boolean = $state(false);
@@ -103,7 +110,7 @@
 	});
 	let assetPromisesDict: Record<
 		string,
-		Promise<[string, api.AssetResponseDto, api.AlbumResponseDto[]]>
+		Promise<[string, api.AssetResponseDto, api.AssetFaceResponseDto[], api.AlbumResponseDto[]]>
 	> = {};
 
 	let unsubscribeRestart: () => void;
@@ -330,7 +337,7 @@
 	const showCursor = () => {
 		cursorVisible = true;
 		clearTimeout(timeoutId);
-		timeoutId = setTimeout(hideCursor, 2000);
+		timeoutId = window.setTimeout(hideCursor, CURSOR_HIDE_MS);
 	};
 
 	function toSessionDisplayEvent(
@@ -639,12 +646,43 @@
 		await syncFrameSession();
 	}
 
-	let isHandlingAssetTransition = false;
+	let isHandlingAssetTransition = $state(false);
+	let transitionEpoch = 0;
+	let pendingTransition: { previous: boolean; instant: boolean } | null = $state(null);
+
 	const handleDone = async (previous: boolean = false, instant: boolean = false) => {
-		if (isHandlingAssetTransition || adminStopped || connectivityState === 'reconnecting') {
+		if (adminStopped || connectivityState === 'reconnecting') {
 			return;
 		}
+
+		if (isHandlingAssetTransition) {
+			pendingTransition = { previous, instant };
+			return;
+		}
+
+		const currentEpoch = ++transitionEpoch;
 		isHandlingAssetTransition = true;
+
+		clearTimeout(watchdogTimer);
+		clearTimeout(videoStallTimeout);
+		// Watchdog: If the transition (fetching/loading assets) hangs, force-release the lock.
+		watchdogTimer = window.setTimeout(() => {
+			if (currentEpoch === transitionEpoch && isHandlingAssetTransition) {
+				console.error('Transition watchdog triggered: Force-resetting lock due to hang');
+				isHandlingAssetTransition = false;
+
+				// Bump the epoch so the original (still-awaiting) transition becomes a no-op
+				// when/if it eventually resolves, and force a fresh advance.
+				transitionEpoch++;
+				const next = pendingTransition ?? { previous: false, instant: true };
+				pendingTransition = null;
+				handleDone(next.previous, next.instant).catch((err) => {
+					console.error('handleDone failed:', err);
+					isHandlingAssetTransition = false;
+				});
+			}
+		}, TRANSITION_WATCHDOG_MS);
+
 		try {
 			userPaused = false;
 			await progressBar.restart(false);
@@ -655,11 +693,27 @@
 				return;
 			}
 			await tick();
+
+			if (currentEpoch !== transitionEpoch) return;
+
 			await assetComponent?.play?.();
 			void progressBar.play();
+			consecutiveErrorSkips = 0;
 			await syncFrameSession();
 		} finally {
-			isHandlingAssetTransition = false;
+			if (currentEpoch === transitionEpoch) {
+				isHandlingAssetTransition = false;
+				clearTimeout(watchdogTimer);
+
+				if (pendingTransition) {
+					const next = pendingTransition;
+					pendingTransition = null;
+					handleDone(next.previous, next.instant).catch((err) => {
+						console.error('handleDone failed:', err);
+						isHandlingAssetTransition = false;
+					});
+				}
+			}
 		}
 	};
 
@@ -673,7 +727,12 @@
 		updateCurrentDuration(assets);
 		primeAssetPromises(assets);
 
-		const newAssets: [string, api.AssetResponseDto, api.AlbumResponseDto[]][] = [];
+		const newAssets: [
+			string,
+			api.AssetResponseDto,
+			api.AssetFaceResponseDto[],
+			api.AlbumResponseDto[]
+		][] = [];
 		for (const asset of assets) {
 			newAssets.push(await ensureAssetPromise(asset));
 		}
@@ -833,28 +892,11 @@
 		return $configStore.interval ?? 20;
 	}
 
-	function parseAssetDuration(duration?: string | null) {
-		if (!duration) {
+	function parseAssetDuration(duration?: number | null) {
+		if (!duration || duration <= 0) {
 			return 0;
 		}
-		const parts = duration.split(':').map((value) => value.trim().replace(',', '.'));
-
-		if (parts.length === 0 || parts.length > 3) {
-			return 0;
-		}
-
-		const multipliers = [3600, 60, 1];
-		const offset = multipliers.length - parts.length;
-
-		let total = 0;
-		for (let i = 0; i < parts.length; i++) {
-			const numeric = parseFloat(parts[i]);
-			if (Number.isNaN(numeric)) {
-				return 0;
-			}
-			total += numeric * multipliers[offset + i];
-		}
-		return total;
+		return duration / 1000; // milliseconds → seconds
 	}
 
 	async function loadAsset(assetResponse: api.AssetResponseDto) {
@@ -914,9 +956,20 @@
 				assetResponse.people = assetInfoRequest.data.people;
 			}
 
-			return [assetUrl, assetResponse, album] as [
+			let faces: api.AssetFaceResponseDto[] = [];
+			if (!isVideoAsset(assetResponse) && ($configStore.imageZoom || $configStore.imagePan)) {
+				const facesRequest = await api.getAssetFaces(assetResponse.id, {
+					clientIdentifier: $clientIdentifierStore
+				});
+				if (facesRequest.status === 200) {
+					faces = facesRequest.data;
+				}
+			}
+
+			return [assetUrl, assetResponse, faces, album] as [
 				string,
 				api.AssetResponseDto,
+				api.AssetFaceResponseDto[],
 				api.AlbumResponseDto[]
 			];
 		} catch (error) {
@@ -1133,6 +1186,9 @@
 			window.removeEventListener('mousemove', showCursor);
 			window.removeEventListener('click', showCursor);
 			window.removeEventListener('beforeunload', handleBeforeUnload);
+			window.clearTimeout(timeoutId);
+			window.clearTimeout(videoStallTimeout);
+			window.clearTimeout(watchdogTimer);
 		};
 	});
 
@@ -1228,6 +1284,19 @@
 					pauseCurrentDisplayClock();
 					await progressBar.pause();
 					await syncFrameSession();
+
+					clearTimeout(videoStallTimeout);
+					if (userPaused) return;
+
+					videoStallTimeout = window.setTimeout(
+						() => {
+							if (!userPaused) {
+								console.warn('Video stalled, skipping...');
+								handleDone(false, true);
+							}
+						},
+						Math.max(5000, Math.min(VIDEO_STALL_MS, currentDuration * 1000))
+					);
 				}}
 				onVideoPlaying={async (displayGeneration) => {
 					if (
@@ -1243,6 +1312,22 @@
 					resumeCurrentDisplayClock();
 					await progressBar.play();
 					await syncFrameSession();
+				}}
+				onAssetError={async () => {
+					if (errorSkipScheduled) return;
+					errorSkipScheduled = true;
+
+					consecutiveErrorSkips++;
+					if (consecutiveErrorSkips > 10) {
+						connectivityState = 'fatal_error';
+						fatalErrorMessage =
+							'Too many consecutive asset load failures. Please check your network or server connection.';
+						errorSkipScheduled = false;
+						return;
+					}
+
+					await handleDone(false, true);
+					errorSkipScheduled = false;
 				}}
 			/>
 		</div>
@@ -1277,7 +1362,7 @@
 								<Weather />
 							{:else if widget === 'metadata' && $configStore.showMetadata}
 								<MetadataStack
-									entries={assetsState.assets.map(([, asset, albums]) => ({ asset, albums }))}
+									entries={assetsState.assets.map(([, asset, , albums]) => ({ asset, albums }))}
 									split={assetsState.split}
 								/>
 							{:else if widget === 'calendar' && $configStore.showCalendar}

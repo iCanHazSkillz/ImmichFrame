@@ -14,8 +14,10 @@ public class MemoryAssetsPool : CachingApiAssetsPool
 
     protected override async Task<IEnumerable<AssetResponseDto>> LoadAssets(CancellationToken ct = default)
     {
-        var searchDate = new DateTimeOffset(DateTime.SpecifyKind(DateTime.Today, DateTimeKind.Utc), TimeSpan.Zero);
-        var memories = await ImmichApi.SearchMemoriesAsync(searchDate, null, null, null, ct);
+        var searchDate = DateTimeOffset.Now;
+        // Immich requires the "for" parameter to carry a timezone offset. NSwag strips it during
+        // query serialization, so it is re-added in ImmichApi.PrepareRequest (see EnsureTimezoneOffset).
+        var memories = await ImmichApi.SearchMemoriesAsync(searchDate, null, null, null, null, null, ct);
 
         var memoryAssets = new List<AssetResponseDto>();
         foreach (var memory in memories)
@@ -32,7 +34,7 @@ public class MemoryAssetsPool : CachingApiAssetsPool
             {
                 if (asset.ExifInfo == null)
                 {
-                    var assetInfo = await ImmichApi.GetAssetInfoAsync(new Guid(asset.Id), null, ct);
+                    var assetInfo = await ImmichApi.GetAssetInfoAsync(asset.Id, null, null, ct);
                     asset.ExifInfo = assetInfo.ExifInfo;
                     asset.People = assetInfo.People;
                 }

@@ -35,7 +35,7 @@ public class TagAssetsPool : CachingApiAssetsPool
             }
         }
 
-        var seenIds = new HashSet<string>();
+        var seenIds = new HashSet<Guid>();
         foreach (var tag in tags)
         {
             int page = 1;
@@ -47,7 +47,7 @@ public class TagAssetsPool : CachingApiAssetsPool
                 {
                     Page = page,
                     Size = batchSize,
-                    TagIds = [new Guid(tag.Id)],
+                    TagIds = [tag.Id],
                     WithExif = true,
                     WithPeople = true
                 };
@@ -57,7 +57,7 @@ public class TagAssetsPool : CachingApiAssetsPool
                     metadataBody.Type = AssetTypeEnum.IMAGE;
                 }
 
-                var tagInfo = await ImmichApi.SearchAssetsAsync(metadataBody, ct);
+                var tagInfo = await ImmichApi.SearchAssetsAsync(null, null, metadataBody, ct);
 
                 itemsInPage = tagInfo.Assets.Items.Count;
 

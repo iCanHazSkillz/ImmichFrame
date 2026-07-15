@@ -64,6 +64,11 @@ builder.Services.AddLogging(builder =>
     builder.AddFilter("Microsoft.AspNetCore.SpaProxy", LogLevel.Warning);
     // Disable AspNetCore info logs
     builder.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
+    // Only show HttpClient request info logs when LOG_LEVEL is Debug or lower
+    if (level > LogLevel.Debug)
+    {
+        builder.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+    }
 });
 
 
@@ -108,13 +113,16 @@ builder.Services.AddSingleton<DynamicServerSettings>();
 builder.Services.AddSingleton<IGeneralSettings>(srv => srv.GetRequiredService<DynamicGeneralSettings>());
 builder.Services.AddSingleton<IServerSettings>(srv => srv.GetRequiredService<DynamicServerSettings>());
 
+// Register sub-settings
+builder.Services.AddSingleton<IClientSettings>(srv => srv.GetRequiredService<IGeneralSettings>());
+builder.Services.AddSingleton<IServerBehaviorSettings>(srv => srv.GetRequiredService<IGeneralSettings>());
+
 // Register services
 builder.Services.AddSingleton<IWeatherService, OpenWeatherMapService>();
 builder.Services.AddSingleton<ICalendarService, IcalCalendarService>();
-builder.Services.AddTransient<IAssetAccountTracker, BloomFilterAssetAccountTracker>();
-builder.Services.AddTransient<IAccountSelectionStrategy, TotalAccountImagesSelectionStrategy>();
-builder.Services.AddSingleton<Func<IAccountSelectionStrategy>>(srv =>
-    () => srv.GetRequiredService<IAccountSelectionStrategy>());
+builder.Services.AddSingleton<IAssetAccountTracker, BloomFilterAssetAccountTracker>();
+builder.Services.AddSingleton<Func<IList<IAccountImmichFrameLogic>, IAccountSelectionStrategy>>(srv =>
+    accounts => ActivatorUtilities.CreateInstance<TotalAccountImagesSelectionStrategy>(srv, accounts));
 builder.Services.AddHttpClient(); // Ensures IHttpClientFactory is available
 
 builder.Services.AddTransient<Func<IAccountSettings, IAccountImmichFrameLogic>>(srv =>
@@ -136,7 +144,7 @@ builder.Services.AddSingleton<IAdminBasicAuthService, AdminBasicAuthService>();
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options => options.SchemaFilter<ImmichFrame.WebApi.Helpers.NoReadOnlySchemaFilter>());
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
@@ -262,6 +270,13 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.MapFallbackToFile("/index.html");
+
+var immichStartupAllowed = await ImmichServerVersionChecker.CheckServerVersions(app.Services, app.Logger);
+if (!immichStartupAllowed)
+{
+    app.Logger.LogCritical("ImmichFrame cannot start: Immich server requirements are not satisfied (see log above). Shutting down.");
+    Environment.Exit(1);
+}
 
 app.Run();
 
