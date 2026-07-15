@@ -15,8 +15,8 @@ public class MemoryAssetsPool : CachingApiAssetsPool
     protected override async Task<IEnumerable<AssetResponseDto>> LoadAssets(CancellationToken ct = default)
     {
         var searchDate = DateTimeOffset.Now;
-        // Immich requires the "for" parameter to carry a timezone offset. NSwag strips it during
-        // query serialization, so it is re-added in ImmichApi.PrepareRequest (see EnsureTimezoneOffset).
+        // Immich expects the "for" parameter as a bare date (YYYY-MM-DD); the datetime NSwag
+        // serializes it as gets truncated in ImmichApi.PrepareRequest (see TruncateToDate).
         var memories = await ImmichApi.SearchMemoriesAsync(searchDate, null, null, null, null, null, ct);
 
         var memoryAssets = new List<AssetResponseDto>();

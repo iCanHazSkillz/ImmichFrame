@@ -42,20 +42,30 @@
             throw new ApiException($"Unexpected status code ({status}).", status, error, headers, null);
         }
 
-        // NSwag serializes DateTimeOffset query parameters with the "s" format, which drops the
-        // timezone offset (e.g. "2026-07-03T14:30:00"). Newer Immich versions validate these
-        // parameters as full ISO 8601 datetimes and reject any value without a timezone, causing a
-        // 400 on the memories endpoints ("for" parameter). Re-append the offset before sending.
-        // Only the "for" query parameter is affected; date filters for search go through the JSON
-        // body, which Newtonsoft already serializes with an offset.
+        // Immich's memories "for" query parameter expects a bare calendar date (YYYY-MM-DD), not a
+        // full ISO 8601 datetime. NSwag serializes the underlying DateTimeOffset with the "s" format
+        // (e.g. "2026-07-15T14:30:00"), which Immich v3 rejects with a 400 ("expected ISO date
+        // string (YYYY-MM-DD)"). Truncate the value down to just the date before sending.
+        // Only the "for" query parameter on GET .../memories is affected; /memories/statistics also
+        // declares a "for" parameter but is never called from this project, so it is left alone.
+        // Date filters for search go through the JSON body, which Newtonsoft serializes separately.
         partial void PrepareRequest(HttpClient client, HttpRequestMessage request, System.Text.StringBuilder urlBuilder)
         {
-            EnsureTimezoneOffset(urlBuilder, "for");
+            TruncateToDate(urlBuilder, "for");
         }
 
-        private static void EnsureTimezoneOffset(System.Text.StringBuilder urlBuilder, string parameterName)
+        private static void TruncateToDate(System.Text.StringBuilder urlBuilder, string parameterName)
         {
             var url = urlBuilder.ToString();
+
+            // RequestUri isn't assigned yet at this point in the generated client, so the path has
+            // to be read off the builder itself. Scope the rewrite to exactly GET .../memories so it
+            // can't accidentally mangle an unrelated "for" parameter on another endpoint (e.g. the
+            // unused /memories/statistics, which ends in a different path segment and won't match).
+            var queryStart = url.IndexOf('?');
+            var path = queryStart < 0 ? url : url.Substring(0, queryStart);
+            if (!path.EndsWith("/memories", StringComparison.Ordinal)) return;
+
             var token = parameterName + "=";
 
             var idx = url.IndexOf("?" + token, StringComparison.Ordinal);
@@ -69,17 +79,18 @@
             var encodedValue = url.Substring(valueStart, valueEnd - valueStart);
             var rawValue = Uri.UnescapeDataString(encodedValue);
 
-            // Only rewrite values that look like a datetime; leave anything else untouched.
-            // The original offset is already lost at this point (stripped by "s"), so we re-infer it
-            // with AssumeLocal, i.e. the machine's local offset. This is correct for the only caller
-            // today (SearchMemoriesAsync with DateTimeOffset.Now). If a caller ever passes a value
-            // with a different offset (e.g. UTC), it would be normalized to the local offset here.
-            if (!DateTimeOffset.TryParse(rawValue, System.Globalization.CultureInfo.InvariantCulture,
-                    System.Globalization.DateTimeStyles.AssumeLocal, out var value))
+            // Only rewrite values that are a full ISO 8601 datetime with a time component (NSwag
+            // serializes DateTimeOffset as "yyyy-MM-ddTHH:mm:ss..."); anything else, including an
+            // already-bare date, is left untouched.
+            if (!rawValue.Contains('T') ||
+                !DateTimeOffset.TryParse(rawValue, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None, out _))
+            {
                 return;
+            }
 
-            var fixedValue = Uri.EscapeDataString(
-                value.ToString("yyyy-MM-ddTHH:mm:sszzz", System.Globalization.CultureInfo.InvariantCulture));
+            var dateOnly = rawValue.Split('T')[0];
+            var fixedValue = Uri.EscapeDataString(dateOnly);
             if (fixedValue == encodedValue) return;
 
             urlBuilder.Remove(valueStart, valueEnd - valueStart);
