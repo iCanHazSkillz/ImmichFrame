@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using ImmichFrame.Core.Interfaces;
 using ImmichFrame.WebApi.Models;
+using ImmichFrame.WebApi.Services;
 using ImmichFrame.WebApi.Tests.Mocks;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -84,6 +85,7 @@ namespace ImmichFrame.WebApi.Tests.Controllers
                     {
                         services.UseMockHandler(versionHandler);
 
+                        services.AddSingleton(new BootstrapServerSettingsHolder(serverSettings));
                         services.AddSingleton<IServerSettings>(serverSettings);
                         services.AddSingleton<IGeneralSettings>(generalSettings);
                     });

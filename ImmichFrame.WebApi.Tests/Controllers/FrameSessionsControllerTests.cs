@@ -4,10 +4,12 @@ using System.Collections;
 using ImmichFrame.Core.Interfaces;
 using ImmichFrame.WebApi.Models;
 using ImmichFrame.WebApi.Services;
+using ImmichFrame.WebApi.Tests.Mocks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Moq;
 using NUnit.Framework;
 
 namespace ImmichFrame.WebApi.Tests.Controllers;
@@ -289,6 +291,8 @@ public class FrameSessionsControllerTests
 
                 builder.ConfigureTestServices(services =>
                 {
+                    services.UseMockHandler(new Mock<HttpMessageHandler>().WithServerVersion());
+
                     var generalSettings = new GeneralSettings
                     {
                         AuthenticationSecret = "test-secret",
