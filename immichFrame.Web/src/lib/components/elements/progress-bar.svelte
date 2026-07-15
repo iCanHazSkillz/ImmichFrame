@@ -8,7 +8,7 @@
 		location?: ProgressBarLocation;
 		hidden?: boolean;
 		duration?: number;
-		onDone: () => void;
+		onDone: () => void | Promise<void>;
 		onPlaying?: () => void;
 		onPaused?: () => void;
 	}
@@ -121,7 +121,11 @@
 		if (durationMs <= 0) {
 			progress = 1;
 			elapsedMs = 0;
-			untrack(() => onDone());
+			untrack(() => {
+				void Promise.resolve(onDone()).catch((err) => {
+					console.error('ProgressBar onDone failed:', err);
+				});
+			});
 			return;
 		}
 
@@ -142,7 +146,11 @@
 			progress = 1;
 			elapsedMs = 0;
 			stopAnimation();
-			untrack(() => onDone());
+			untrack(() => {
+				void Promise.resolve(onDone()).catch((err) => {
+					console.error('ProgressBar onDone failed:', err);
+				});
+			});
 			return;
 		}
 
@@ -153,7 +161,11 @@
 		if (progress >= 1) {
 			elapsedMs = durationMs;
 			stopAnimation();
-			untrack(() => onDone());
+			untrack(() => {
+				void Promise.resolve(onDone()).catch((err) => {
+					console.error('ProgressBar onDone failed:', err);
+				});
+			});
 			return;
 		}
 

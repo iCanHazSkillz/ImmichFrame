@@ -17,7 +17,7 @@ public class FavoriteAssetsPool : CachingApiAssetsPool
 
         int page = 1;
         int batchSize = 1000;
-        int total;
+        int itemsInPage;
         do
         {
             var metadataBody = new MetadataSearchDto
@@ -34,13 +34,13 @@ public class FavoriteAssetsPool : CachingApiAssetsPool
                 metadataBody.Type = AssetTypeEnum.IMAGE;
             }
 
-            var favoriteInfo = await ImmichApi.SearchAssetsAsync(metadataBody, ct);
+            var favoriteInfo = await ImmichApi.SearchAssetsAsync(null, null, metadataBody, ct);
 
-            total = favoriteInfo.Assets.Total;
+            itemsInPage = favoriteInfo.Assets.Items.Count;
 
             favoriteAssets.AddRange(favoriteInfo.Assets.Items);
             page++;
-        } while (total == batchSize);
+        } while (itemsInPage == batchSize);
 
         return favoriteAssets;
     }

@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using ImmichFrame.WebApi.Helpers;
 using ImmichFrame.WebApi.Models;
 using ImmichFrame.WebApi.Services;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -1337,6 +1338,17 @@ public class AdminSettingsControllerTests
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var requestUri = request.RequestUri;
+
+            if (requestUri != null && requestUri.AbsolutePath.Contains("server/version", StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(new HttpResponseMessage
+                {
+                    StatusCode = HttpStatusCode.OK,
+                    Content = new StringContent(
+                        $$"""{"major":{{ImmichServerVersionChecker.MinimumSupportedMajorVersion}},"minor":0,"patch":0,"prerelease":null}""")
+                });
+            }
+
             if (request.Method != HttpMethod.Get ||
                 requestUri == null ||
                 !string.Equals(requestUri.Host, expectedBaseUri.Host, StringComparison.OrdinalIgnoreCase) ||
