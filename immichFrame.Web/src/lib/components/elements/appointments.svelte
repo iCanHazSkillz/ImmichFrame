@@ -176,7 +176,7 @@
 	});
 
 	$effect(() => {
-		if (!$configStore.showCalendar || ($configStore.webcalendars?.length ?? 0) === 0) {
+		if (!$configStore.showCalendar) {
 			appointments = [];
 			expandedAppointmentKey = null;
 			clearExpandedAppointmentTimeout();
