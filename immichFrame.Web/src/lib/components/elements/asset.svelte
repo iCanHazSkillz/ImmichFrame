@@ -8,7 +8,6 @@
 	import { isVideoAsset } from '$lib/constants/asset-type';
 	import { decodeBase64 } from '$lib/utils';
 	import { thumbHashToDataURL } from 'thumbhash';
-	import AssetInfo from '$lib/components/elements/asset-info.svelte';
 	import ImageOverlay from '$lib/components/elements/imageoverlay/image-overlay.svelte';
 
 	interface Props {
@@ -284,17 +283,6 @@
 		{/if}
 	</div>
 </div>
-<AssetInfo
-	asset={asset[1]}
-	albums={asset[3]}
-	{showLocation}
-	{showPhotoDate}
-	{showImageDesc}
-	{showPeopleDesc}
-	{showTagsDesc}
-	{showAlbumName}
-	{split}
-/>
 <img class="absolute flex w-full h-full z-[-1]" src={thumbhashUrl} alt="data" />
 
 <style>

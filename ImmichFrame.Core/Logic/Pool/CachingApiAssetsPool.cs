@@ -34,8 +34,11 @@ public abstract class CachingApiAssetsPool : IAssetPool
 
     private async Task<IEnumerable<AssetResponseDto>> AllAssets(CancellationToken ct = default)
     {
+        // Keyed independently of the concrete pool type: every pool for this account excludes
+        // the same albums, and they share ApiCache, so this lets them share one fetch instead of
+        // each pool re-paginating the same excluded-album assets from Immich.
         var excludedAlbumAssets = await ApiCache.GetOrAddAsync(
-            $"{GetType().FullName}_ExcludedAlbums",
+            "ExcludedAlbumAssets",
             () => AssetHelper.GetExcludedAlbumAssets(ImmichApi, AccountSettings, Logger, ct));
 
         return await ApiCache.GetOrAddAsync(
