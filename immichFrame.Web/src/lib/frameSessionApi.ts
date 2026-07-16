@@ -315,6 +315,31 @@ export function sendBeaconFrameSessionDisconnect(
 	);
 }
 
+export async function reportFrameClientLog(
+	clientIdentifier: string,
+	message: string,
+	details?: string
+) {
+	try {
+		const response = await fetch(
+			`/api/frame-sessions/${encodeURIComponent(clientIdentifier)}/client-log`,
+			{
+				method: 'POST',
+				headers: getHeaders(true),
+				body: JSON.stringify({ level: 'error', message, details })
+			}
+		);
+
+		if (!response.ok) {
+			console.error(`Failed to report client log for ${clientIdentifier}: ${response.status}`);
+		}
+	} catch (error) {
+		// Best-effort only: this runs from failure-handling paths, so a failure here should not
+		// compound the original error or interrupt the caller's recovery flow.
+		console.error(`Failed to report client log for ${clientIdentifier}:`, error);
+	}
+}
+
 export async function getAdminFrameSessions() {
 	const response = await fetch('/api/admin/frame-sessions', {
 		credentials: 'same-origin'

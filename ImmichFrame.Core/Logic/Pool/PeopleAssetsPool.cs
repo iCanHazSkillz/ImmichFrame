@@ -1,4 +1,5 @@
 using ImmichFrame.Core.Api;
+using ImmichFrame.Core.Helpers;
 using ImmichFrame.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 
@@ -13,43 +14,50 @@ public class PersonAssetsPool : CachingApiAssetsPool
 
     protected override async Task<IEnumerable<AssetResponseDto>> LoadAssets(CancellationToken ct = default)
     {
-        var personAssets = new List<AssetResponseDto>();
-
         var people = AccountSettings.People;
         if (people == null)
         {
-            return personAssets;
+            return [];
         }
 
-        foreach (var personId in people)
+        // Each configured person is paginated independently; fetch them concurrently (up to a
+        // shared limit) instead of one at a time so accounts with many configured people don't
+        // pay for N sequential paginated fetches in a row.
+        var perPersonAssets = await AssetHelper.RunWithConcurrencyLimitAsync(people, personId => LoadPersonAssets(personId, ct));
+
+        return perPersonAssets.SelectMany(assets => assets);
+    }
+
+    private async Task<List<AssetResponseDto>> LoadPersonAssets(Guid personId, CancellationToken ct)
+    {
+        var personAssets = new List<AssetResponseDto>();
+
+        int page = 1;
+        int batchSize = 1000;
+        int itemsInPage;
+        do
         {
-            int page = 1;
-            int batchSize = 1000;
-            int itemsInPage;
-            do
+            var metadataBody = new MetadataSearchDto
             {
-                var metadataBody = new MetadataSearchDto
-                {
-                    Page = page,
-                    Size = batchSize,
-                    PersonIds = [personId],
-                    WithExif = true,
-                    WithPeople = true
-                };
+                Page = page,
+                Size = batchSize,
+                PersonIds = [personId],
+                WithExif = true,
+                WithPeople = true
+            };
 
-                if (!AccountSettings.ShowVideos)
-                {
-                    metadataBody.Type = AssetTypeEnum.IMAGE;
-                }
+            if (!AccountSettings.ShowVideos)
+            {
+                metadataBody.Type = AssetTypeEnum.IMAGE;
+            }
 
-                var personInfo = await ImmichApi.SearchAssetsAsync(null, null, metadataBody, ct);
+            var personInfo = await ImmichApi.SearchAssetsAsync(null, null, metadataBody, ct);
 
-                itemsInPage = personInfo.Assets.Items.Count;
+            itemsInPage = personInfo.Assets.Items.Count;
 
-                personAssets.AddRange(personInfo.Assets.Items);
-                page++;
-            } while (itemsInPage == batchSize);
-        }
+            personAssets.AddRange(personInfo.Assets.Items);
+            page++;
+        } while (itemsInPage == batchSize);
 
         return personAssets;
     }

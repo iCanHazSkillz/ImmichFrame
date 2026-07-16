@@ -8,6 +8,34 @@ namespace ImmichFrame.Core.Helpers;
 
 public static class AssetHelper
 {
+    // Shared across AlbumAssetsPool, PersonAssetsPool, and TagAssetsPool so an account with many
+    // configured albums/people/tags doesn't fire off unbounded concurrent paginated searches
+    // against the same Immich server at once.
+    public const int DefaultPaginationConcurrencyLimit = 4;
+
+    public static async Task<TResult[]> RunWithConcurrencyLimitAsync<TInput, TResult>(
+        IEnumerable<TInput> items,
+        Func<TInput, Task<TResult>> action,
+        int concurrencyLimit = DefaultPaginationConcurrencyLimit)
+    {
+        using var semaphore = new SemaphoreSlim(concurrencyLimit);
+
+        async Task<TResult> RunAsync(TInput item)
+        {
+            await semaphore.WaitAsync();
+            try
+            {
+                return await action(item);
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        }
+
+        return await Task.WhenAll(items.Select(RunAsync));
+    }
+
     public static async Task<IEnumerable<AssetResponseDto>> GetExcludedAlbumAssets(ImmichApi immichApi, IAccountSettings accountSettings, ILogger? logger = null, CancellationToken ct = default)
     {
         var excludedAlbumAssets = new List<AssetResponseDto>();

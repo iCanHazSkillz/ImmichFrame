@@ -1,4 +1,5 @@
 using ImmichFrame.Core.Api;
+using ImmichFrame.Core.Helpers;
 using ImmichFrame.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 
@@ -35,53 +36,77 @@ public class TagAssetsPool : CachingApiAssetsPool
             }
         }
 
-        var seenIds = new HashSet<Guid>();
-        foreach (var tag in tags)
+        // Each configured tag is paginated independently; fetch them concurrently (up to a
+        // shared limit) instead of one at a time so accounts with many configured tags don't pay
+        // for N sequential paginated fetches in a row. Results are merged afterward
+        // (sequentially) since an asset matching multiple tags needs every matching tag attached.
+        var perTagAssets = await AssetHelper.RunWithConcurrencyLimitAsync(tags, tag => LoadTagAssets(tag, ct));
+
+        var assetById = new Dictionary<Guid, AssetResponseDto>();
+        foreach (var results in perTagAssets)
         {
-            int page = 1;
-            int batchSize = 1000;
-            int itemsInPage;
-            do
+            foreach (var asset in results)
             {
-                var metadataBody = new MetadataSearchDto
+                var matchedTag = asset.Tags.Single();
+
+                if (assetById.TryGetValue(asset.Id, out var existing))
                 {
-                    Page = page,
-                    Size = batchSize,
-                    TagIds = [tag.Id],
-                    WithExif = true,
-                    WithPeople = true
-                };
-
-                if (!AccountSettings.ShowVideos)
-                {
-                    metadataBody.Type = AssetTypeEnum.IMAGE;
-                }
-
-                var tagInfo = await ImmichApi.SearchAssetsAsync(null, null, metadataBody, ct);
-
-                itemsInPage = tagInfo.Assets.Items.Count;
-
-                // Attach the tag that matched this search
-                foreach (var asset in tagInfo.Assets.Items)
-                {
-                    if (seenIds.Contains(asset.Id))
+                    // A duplicate configured tag value (or an asset landing in more than one
+                    // page for the same tag) would otherwise attach the same tag twice.
+                    if (!existing.Tags.Any(t => t.Id == matchedTag.Id))
                     {
-                        tagAssets.First(a => a.Id == asset.Id).Tags.Add(tag);
-                        continue;
+                        existing.Tags.Add(matchedTag);
                     }
-
-                    // SearchAssetsAsync does not support a `WithTags`
-                    // parameter, so simply set the one that was configured
-                    asset.Tags = new List<TagResponseDto> { tag };
-
-                    seenIds.Add(asset.Id);
-                    tagAssets.Add(asset);
+                    continue;
                 }
 
-                page++;
-            } while (itemsInPage == batchSize);
+                assetById[asset.Id] = asset;
+                tagAssets.Add(asset);
+            }
         }
 
         return tagAssets;
+    }
+
+    private async Task<List<AssetResponseDto>> LoadTagAssets(TagResponseDto tag, CancellationToken ct)
+    {
+        var results = new List<AssetResponseDto>();
+
+        int page = 1;
+        int batchSize = 1000;
+        int itemsInPage;
+        do
+        {
+            var metadataBody = new MetadataSearchDto
+            {
+                Page = page,
+                Size = batchSize,
+                TagIds = [tag.Id],
+                WithExif = true,
+                WithPeople = true
+            };
+
+            if (!AccountSettings.ShowVideos)
+            {
+                metadataBody.Type = AssetTypeEnum.IMAGE;
+            }
+
+            var tagInfo = await ImmichApi.SearchAssetsAsync(null, null, metadataBody, ct);
+
+            itemsInPage = tagInfo.Assets.Items.Count;
+
+            foreach (var asset in tagInfo.Assets.Items)
+            {
+                // SearchAssetsAsync does not support a `WithTags` parameter, so simply set the
+                // one that was configured; matches against other configured tags are merged by
+                // the caller once every tag's fetch has completed.
+                asset.Tags = new List<TagResponseDto> { tag };
+                results.Add(asset);
+            }
+
+            page++;
+        } while (itemsInPage == batchSize);
+
+        return results;
     }
 }

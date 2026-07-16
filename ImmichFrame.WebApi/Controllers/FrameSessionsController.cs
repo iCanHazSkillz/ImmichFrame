@@ -66,6 +66,38 @@ public class FrameSessionsController : ControllerBase
             : NotFound();
     }
 
+    [HttpPost("{clientIdentifier}/client-log")]
+    public IActionResult ReportClientLog(string clientIdentifier, [FromBody] ClientLogRequest request)
+    {
+        var sanitizedClientIdentifier = clientIdentifier.SanitizeString();
+        if (string.IsNullOrWhiteSpace(sanitizedClientIdentifier))
+        {
+            return BadRequest("A valid client identifier is required.");
+        }
+
+        var message = SanitizeLogText(request.Message);
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return BadRequest("A log message is required.");
+        }
+
+        var details = SanitizeLogText(request.Details, maxLength: 2000);
+        var level = request.Level?.Trim().ToLowerInvariant();
+
+        // Client-reported events are logged at Warning regardless of the reported level so they
+        // surface in `docker logs` (typically Information and up) without extra configuration —
+        // this endpoint only exists so rare client-side failures (transition watchdog hangs,
+        // video stalls) become visible without a browser console capture.
+        _logger.LogWarning(
+            "Client-reported event from '{clientIdentifier}' [{level}]: {message} {details}",
+            sanitizedClientIdentifier,
+            level ?? "error",
+            message,
+            details);
+
+        return NoContent();
+    }
+
     [AllowAnonymous]
     [HttpPost("{clientIdentifier}/disconnect")]
     public IActionResult Disconnect(string clientIdentifier, [FromBody] FrameSessionDisconnectRequest? request)
@@ -101,5 +133,16 @@ public class FrameSessionsController : ControllerBase
         }
 
         return string.Equals(requestAuthSecret, _authenticationSecret, StringComparison.Ordinal);
+    }
+
+    private static string? SanitizeLogText(string? value, int maxLength = 500)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var singleLine = value.Replace("\r", " ").Replace("\n", " ").Trim();
+        return singleLine.Length > maxLength ? singleLine[..maxLength] : singleLine;
     }
 }

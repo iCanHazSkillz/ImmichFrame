@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using ImmichFrame.Core.Api;
 using ImmichFrame.Core.Exceptions;
@@ -35,18 +36,41 @@ namespace ImmichFrame.WebApi.Controllers
             _settings = settings;
         }
 
+        // Above this, the request is logged at Warning even though it succeeded, so a slow
+        // asset list shows up in production logs without needing Debug logging or a browser HAR
+        // capture. Individual pools log their own breakdown above CachingApiAssetsPool's own
+        // (lower) threshold, so a slow request here should have a matching pool-level line just
+        // before it pointing at which account/resource (people, tags, albums, ...) was slow.
+        private static readonly TimeSpan SlowRequestThreshold = TimeSpan.FromSeconds(5);
+
         [HttpGet(Name = "GetAssets")]
         public async Task<ActionResult<List<AssetResponseDto>>> GetAssets(string clientIdentifier = "")
         {
             var sanitizedClientIdentifier = clientIdentifier.SanitizeString();
             _logger.LogDebug("Assets requested by '{sanitizedClientIdentifier}'", sanitizedClientIdentifier);
 
+            var stopwatch = Stopwatch.StartNew();
             try
             {
-                return (await _logic.GetAssets()).ToList();
+                var assets = (await _logic.GetAssets()).ToList();
+
+                if (stopwatch.Elapsed > SlowRequestThreshold)
+                {
+                    _logger.LogWarning(
+                        "Asset list for '{sanitizedClientIdentifier}' took {elapsedMs}ms",
+                        sanitizedClientIdentifier,
+                        (long)stopwatch.Elapsed.TotalMilliseconds);
+                }
+
+                return assets;
             }
             catch (Exception ex) when (IsTransientUpstreamFailure(ex))
             {
+                _logger.LogWarning(
+                    "Asset list for '{sanitizedClientIdentifier}' failed after {elapsedMs}ms",
+                    sanitizedClientIdentifier,
+                    (long)stopwatch.Elapsed.TotalMilliseconds);
+
                 return UpstreamUnavailable(
                     "asset list",
                     sanitizedClientIdentifier,
