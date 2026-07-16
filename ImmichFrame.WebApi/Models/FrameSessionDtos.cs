@@ -84,3 +84,10 @@ public class UpdateFrameSessionDisplayNameRequest
 {
     public string? DisplayName { get; set; }
 }
+
+public class ClientLogRequest
+{
+    public string Level { get; set; } = "error";
+    public string Message { get; set; } = string.Empty;
+    public string? Details { get; set; }
+}

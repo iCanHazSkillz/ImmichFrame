@@ -26,6 +26,7 @@
 		disconnectFrameSession,
 		getFrameSessionCommands,
 		putFrameSessionSnapshot,
+		reportFrameClientLog,
 		sendBeaconFrameSessionDisconnect
 	} from '$lib/frameSessionApi';
 	import {
@@ -117,6 +118,11 @@
 	let unsubscribeStop: () => void;
 
 	let cursorVisible = $state(true);
+	// Shared by every Immich-backed API call below. When the transition watchdog force-resets a
+	// hung attempt, this gets aborted (cancelling whatever requests it was still waiting on) and
+	// replaced, so retries don't pile up abandoned-but-still-running requests on top of each
+	// other and exhaust the browser's per-origin connection limit.
+	let currentAbortController = new AbortController();
 	let timeoutId: number;
 	let heartbeatIntervalId: number | undefined;
 	let commandPollIntervalId: number | undefined;
@@ -548,7 +554,7 @@
 			return;
 		}
 
-		const assetRequest = await api.getAssets();
+		const assetRequest = await api.getAssets({}, { signal: currentAbortController.signal });
 
 		if (assetRequest.status !== 200) {
 			throw createFrameRequestError(
@@ -587,6 +593,13 @@
 	}
 
 	async function handleAssetPipelineFailure(error: unknown) {
+		if (error instanceof DOMException && error.name === 'AbortError') {
+			// A deliberately cancelled request (the transition watchdog aborting an abandoned
+			// attempt) isn't a real connectivity failure - a fresh attempt is already underway,
+			// so there's nothing to surface here.
+			return false;
+		}
+
 		const failure = classifyFrameFailure(error);
 
 		if (failure.kind === 'auth') {
@@ -674,7 +687,19 @@
 		watchdogTimer = window.setTimeout(() => {
 			if (currentEpoch === transitionEpoch && isHandlingAssetTransition) {
 				console.error('Transition watchdog triggered: Force-resetting lock due to hang');
+				if ($clientIdentifierStore) {
+					reportFrameClientLog(
+						$clientIdentifierStore,
+						'Transition watchdog triggered: force-resetting lock due to hang'
+					);
+				}
 				isHandlingAssetTransition = false;
+
+				// Cancel whatever this attempt was still waiting on and hand the retry a fresh
+				// controller, so the abandoned request doesn't keep occupying a connection
+				// alongside the retry's own requests.
+				currentAbortController.abort();
+				currentAbortController = new AbortController();
 
 				// Bump the epoch so the original (still-awaiting) transition becomes a no-op
 				// when/if it eventually resolves, and force a fresh advance.
@@ -917,10 +942,14 @@
 					assetResponse.type
 				);
 			} else {
-				const req = await api.getAsset(assetResponse.id, {
-					clientIdentifier: $clientIdentifierStore,
-					assetType: assetResponse.type
-				});
+				const req = await api.getAsset(
+					assetResponse.id,
+					{
+						clientIdentifier: $clientIdentifierStore,
+						assetType: assetResponse.type
+					},
+					{ signal: currentAbortController.signal }
+				);
 				if (req.status != 200) {
 					throw createFrameRequestError(
 						statusToFailureKind(req.status),
@@ -933,9 +962,11 @@
 
 			let album: api.AlbumResponseDto[] | null = null;
 			if ($configStore.showAlbumName) {
-				const albumReq = await api.getAlbumInfo(assetResponse.id, {
-					clientIdentifier: $clientIdentifierStore
-				});
+				const albumReq = await api.getAlbumInfo(
+					assetResponse.id,
+					{ clientIdentifier: $clientIdentifierStore },
+					{ signal: currentAbortController.signal }
+				);
 				if (albumReq.status !== 200) {
 					throw createFrameRequestError(
 						statusToFailureKind(albumReq.status),
@@ -947,9 +978,11 @@
 			}
 
 			if ($configStore.showPeopleDesc && (assetResponse.people ?? []).length == 0) {
-				const assetInfoRequest = await api.getAssetInfo(assetResponse.id, {
-					clientIdentifier: $clientIdentifierStore
-				});
+				const assetInfoRequest = await api.getAssetInfo(
+					assetResponse.id,
+					{ clientIdentifier: $clientIdentifierStore },
+					{ signal: currentAbortController.signal }
+				);
 				if (assetInfoRequest.status !== 200) {
 					throw createFrameRequestError(
 						statusToFailureKind(assetInfoRequest.status),
@@ -962,9 +995,11 @@
 
 			let faces: api.AssetFaceResponseDto[] = [];
 			if (!isVideoAsset(assetResponse) && ($configStore.imageZoom || $configStore.imagePan)) {
-				const facesRequest = await api.getAssetFaces(assetResponse.id, {
-					clientIdentifier: $clientIdentifierStore
-				});
+				const facesRequest = await api.getAssetFaces(
+					assetResponse.id,
+					{ clientIdentifier: $clientIdentifierStore },
+					{ signal: currentAbortController.signal }
+				);
 				if (facesRequest.status === 200) {
 					faces = facesRequest.data;
 				}
@@ -1296,6 +1331,9 @@
 						() => {
 							if (!userPaused) {
 								console.warn('Video stalled, skipping...');
+								if ($clientIdentifierStore) {
+									reportFrameClientLog($clientIdentifierStore, 'Video stalled, skipping');
+								}
 								handleDone(false, true);
 							}
 						},
