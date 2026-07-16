@@ -20,10 +20,10 @@ public class AlbumAssetsPool : CachingApiAssetsPool
             return [];
         }
 
-        // Each configured album is paginated independently; fetch them concurrently instead of
-        // one at a time so accounts with many configured albums don't pay for N sequential
-        // paginated fetches in a row.
-        var perAlbumAssets = await Task.WhenAll(albums.Select(albumId => LoadAlbumAssets(albumId, ct)));
+        // Each configured album is paginated independently; fetch them concurrently (up to a
+        // shared limit) instead of one at a time so accounts with many configured albums don't
+        // pay for N sequential paginated fetches in a row.
+        var perAlbumAssets = await AssetHelper.RunWithConcurrencyLimitAsync(albums, albumId => LoadAlbumAssets(albumId, ct));
 
         return perAlbumAssets.SelectMany(assets => assets);
     }

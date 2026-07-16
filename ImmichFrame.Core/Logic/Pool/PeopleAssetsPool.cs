@@ -1,4 +1,5 @@
 using ImmichFrame.Core.Api;
+using ImmichFrame.Core.Helpers;
 using ImmichFrame.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 
@@ -19,10 +20,10 @@ public class PersonAssetsPool : CachingApiAssetsPool
             return [];
         }
 
-        // Each configured person is paginated independently; fetch them concurrently instead of
-        // one at a time so accounts with many configured people don't pay for N sequential
-        // paginated fetches in a row.
-        var perPersonAssets = await Task.WhenAll(people.Select(personId => LoadPersonAssets(personId, ct)));
+        // Each configured person is paginated independently; fetch them concurrently (up to a
+        // shared limit) instead of one at a time so accounts with many configured people don't
+        // pay for N sequential paginated fetches in a row.
+        var perPersonAssets = await AssetHelper.RunWithConcurrencyLimitAsync(people, personId => LoadPersonAssets(personId, ct));
 
         return perPersonAssets.SelectMany(assets => assets);
     }

@@ -1,4 +1,5 @@
 using ImmichFrame.Core.Api;
+using ImmichFrame.Core.Helpers;
 using ImmichFrame.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 
@@ -35,20 +36,27 @@ public class TagAssetsPool : CachingApiAssetsPool
             }
         }
 
-        // Each configured tag is paginated independently; fetch them concurrently instead of one
-        // at a time so accounts with many configured tags don't pay for N sequential paginated
-        // fetches in a row. Results are merged afterward (sequentially) since an asset matching
-        // multiple tags needs every matching tag attached.
-        var perTagAssets = await Task.WhenAll(tags.Select(tag => LoadTagAssets(tag, ct)));
+        // Each configured tag is paginated independently; fetch them concurrently (up to a
+        // shared limit) instead of one at a time so accounts with many configured tags don't pay
+        // for N sequential paginated fetches in a row. Results are merged afterward
+        // (sequentially) since an asset matching multiple tags needs every matching tag attached.
+        var perTagAssets = await AssetHelper.RunWithConcurrencyLimitAsync(tags, tag => LoadTagAssets(tag, ct));
 
         var assetById = new Dictionary<Guid, AssetResponseDto>();
         foreach (var results in perTagAssets)
         {
             foreach (var asset in results)
             {
+                var matchedTag = asset.Tags.Single();
+
                 if (assetById.TryGetValue(asset.Id, out var existing))
                 {
-                    existing.Tags.Add(asset.Tags.Single());
+                    // A duplicate configured tag value (or an asset landing in more than one
+                    // page for the same tag) would otherwise attach the same tag twice.
+                    if (!existing.Tags.Any(t => t.Id == matchedTag.Id))
+                    {
+                        existing.Tags.Add(matchedTag);
+                    }
                     continue;
                 }
 
