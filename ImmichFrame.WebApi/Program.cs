@@ -124,6 +124,17 @@ builder.Services.AddSingleton<IAssetAccountTracker, BloomFilterAssetAccountTrack
 builder.Services.AddSingleton<Func<IList<IAccountImmichFrameLogic>, IAccountSelectionStrategy>>(srv =>
     accounts => ActivatorUtilities.CreateInstance<TotalAccountImagesSelectionStrategy>(srv, accounts));
 builder.Services.AddHttpClient(); // Ensures IHttpClientFactory is available
+// Every call to Immich (metadata, pagination, image/video fetches) goes through this named
+// client. Without an explicit timeout it falls back to HttpClient's 100s default, so a stalled
+// connection to Immich can hang a request for a very long time before failing - and the initial
+// asset bootstrap on the frontend has no watchdog of its own to recover from that. Bounding it
+// here means a stuck connection surfaces as a prompt, retryable failure instead of an indefinite
+// hang. Video/range requests use HttpCompletionOption.ResponseHeadersRead, so this only bounds
+// time-to-headers for those, not the full streamed download.
+builder.Services.AddHttpClient("ImmichApiAccountClient", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
 
 builder.Services.AddTransient<Func<IAccountSettings, IAccountImmichFrameLogic>>(srv =>
     account => ActivatorUtilities.CreateInstance<PooledImmichFrameLogic>(srv, account));
