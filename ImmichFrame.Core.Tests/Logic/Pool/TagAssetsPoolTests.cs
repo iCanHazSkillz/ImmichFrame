@@ -244,11 +244,12 @@ public class TagAssetsPoolTests
                 new TagResponseDto { Id = tag2, Name = "Tag2", Value = "Tag2" }
             ]);
 
-        var shared = Asset("shared");
+        // Two independent objects sharing an Id, the way two separate HTTP responses would each
+        // deserialize their own instance of "the same" asset - not a single aliased reference.
         _api.Setup(a => a.SearchAssetsAsync(It.IsAny<string>(), It.IsAny<string>(), It.Is<MetadataSearchDto>(d => d.TagIds.Contains(tag1)), default))
-            .ReturnsAsync(SearchResult([shared, Asset("tag1-only")]));
+            .ReturnsAsync(SearchResult([Asset("shared"), Asset("tag1-only")]));
         _api.Setup(a => a.SearchAssetsAsync(It.IsAny<string>(), It.IsAny<string>(), It.Is<MetadataSearchDto>(d => d.TagIds.Contains(tag2)), default))
-            .ReturnsAsync(SearchResult([shared, Asset("tag2-only")]));
+            .ReturnsAsync(SearchResult([Asset("shared"), Asset("tag2-only")]));
 
         var result = (await _pool.LoadAssetsPublic()).ToList();
 
