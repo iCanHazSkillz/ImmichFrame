@@ -17,7 +17,10 @@ public static class CollectionExtensionMethods
         => WhereExcludes(source, excluded, t => t!);
 
     public static IEnumerable<T> WhereExcludes<T>(this IEnumerable<T> source, IEnumerable<T> excluded, Func<T, object> comparator)
-        => source.Where(item1 => !excluded.Any(item2 => Equals(comparator(item2), comparator(item1))));
+    {
+        var excludedKeys = new HashSet<object>(excluded.Select(comparator));
+        return source.Where(item => !excludedKeys.Contains(comparator(item)));
+    }
 
     public static async Task<T?> ChooseOne<T>(this IEnumerable<T> sources, Func<T, Task<long>> probabilitySelector)
     {

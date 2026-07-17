@@ -38,43 +38,54 @@ public static class AssetHelper
 
     public static async Task<IEnumerable<AssetResponseDto>> GetExcludedAlbumAssets(ImmichApi immichApi, IAccountSettings accountSettings, ILogger? logger = null, CancellationToken ct = default)
     {
+        var excludedAlbums = accountSettings?.ExcludedAlbums ?? new();
+
+        // Each excluded album is paginated independently; fetch them concurrently (up to a
+        // shared limit) instead of one at a time so accounts with many excluded albums don't pay
+        // for N sequential paginated fetches in a row.
+        var perAlbumAssets = await RunWithConcurrencyLimitAsync(
+            excludedAlbums,
+            albumId => LoadExcludedAlbumAssets(immichApi, albumId, accountSettings?.ImmichServerUrl, logger, ct));
+
+        return perAlbumAssets.SelectMany(assets => assets);
+    }
+
+    private static async Task<List<AssetResponseDto>> LoadExcludedAlbumAssets(ImmichApi immichApi, Guid albumId, string? immichServerUrl, ILogger? logger, CancellationToken ct)
+    {
         var excludedAlbumAssets = new List<AssetResponseDto>();
 
-        foreach (var albumId in accountSettings?.ExcludedAlbums ?? new())
+        int page = 1;
+        int batchSize = 1000;
+        int itemsInPage;
+        do
         {
-            int page = 1;
-            int batchSize = 1000;
-            int itemsInPage;
-            do
+            var metadataBody = new MetadataSearchDto
             {
-                var metadataBody = new MetadataSearchDto
-                {
-                    Page = page,
-                    Size = batchSize,
-                    AlbumIds = [albumId]
-                };
+                Page = page,
+                Size = batchSize,
+                AlbumIds = [albumId]
+            };
 
-                SearchResponseDto searchResponse;
-                try
-                {
-                    searchResponse = await immichApi.SearchAssetsAsync(null, null, metadataBody, ct);
-                }
-                catch (ApiException ex) when (IsExpectedAlbumLookupFailure(ex))
-                {
-                    LogSkippedAlbum(logger, albumId, accountSettings?.ImmichServerUrl, "excluded", ex);
-                    break;
-                }
+            SearchResponseDto searchResponse;
+            try
+            {
+                searchResponse = await immichApi.SearchAssetsAsync(null, null, metadataBody, ct);
+            }
+            catch (ApiException ex) when (IsExpectedAlbumLookupFailure(ex))
+            {
+                LogSkippedAlbum(logger, albumId, immichServerUrl, "excluded", ex);
+                break;
+            }
 
-                itemsInPage = searchResponse.Assets?.Items?.Count ?? 0;
+            itemsInPage = searchResponse.Assets?.Items?.Count ?? 0;
 
-                if (searchResponse.Assets?.Items != null)
-                {
-                    excludedAlbumAssets.AddRange(searchResponse.Assets.Items);
-                }
+            if (searchResponse.Assets?.Items != null)
+            {
+                excludedAlbumAssets.AddRange(searchResponse.Assets.Items);
+            }
 
-                page++;
-            } while (itemsInPage == batchSize);
-        }
+            page++;
+        } while (itemsInPage == batchSize);
 
         return excludedAlbumAssets;
     }
