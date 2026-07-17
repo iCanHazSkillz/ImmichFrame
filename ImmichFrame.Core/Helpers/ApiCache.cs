@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace ImmichFrame.Core.Helpers;
@@ -9,6 +10,16 @@ public class ApiCache : IApiCache, IDisposable
     private IMemoryCache? _cache = new MemoryCache(new MemoryCacheOptions());
     private int _leaseCount;
     private bool _disposeRequested;
+
+    // Coalesces concurrent cache-miss callers for the same key onto a single in-flight
+    // Task<T>, so N racing callers invoke factory() once instead of N times. Entries exist only
+    // while work for that key is in flight - the caller that reaches the entry's completion
+    // removes it in a finally block, so a fresh generation starts cleanly on the next miss
+    // (post-expiry or post-failure) and this never becomes a second long-term cache alongside
+    // IMemoryCache. Values are stored as `object` because one dictionary has to serve every T
+    // used across all cache keys; the stored value is always a Lazy<Task<T>> reference, so this
+    // is a reference-type upcast, not boxing.
+    private readonly ConcurrentDictionary<string, object> _inFlight = new();
 
     public ApiCache(TimeSpan cacheDuration) : this(() => new MemoryCacheEntryOptions()
     {
@@ -31,8 +42,62 @@ public class ApiCache : IApiCache, IDisposable
             cache = _cache ?? throw new ObjectDisposedException(nameof(ApiCache));
         }
 
-        var value = await cache.GetOrCreateAsync<T>(key, _ => factory(), _cacheOptions());
+        if (cache.TryGetValue(key, out T cached))
+        {
+            ArgumentNullException.ThrowIfNull(cached);
+            return cached;
+        }
+
+        var lazy = GetOrCreateInFlightEntry(key, cache, factory);
+        try
+        {
+            return await lazy.Value;
+        }
+        finally
+        {
+            _inFlight.TryRemove(new KeyValuePair<string, object>(key, lazy));
+        }
+    }
+
+    private Lazy<Task<T>> GetOrCreateInFlightEntry<T>(string key, IMemoryCache cache, Func<Task<T>> factory) where T : notnull
+    {
+        var candidate = new Lazy<Task<T>>(
+            () => RunAndCacheAsync(key, cache, factory),
+            LazyThreadSafetyMode.ExecutionAndPublication);
+
+        var stored = _inFlight.GetOrAdd(key, candidate);
+
+        if (stored is not Lazy<Task<T>> lazy)
+        {
+            throw new InvalidOperationException(
+                $"ApiCache key '{key}' is already in flight for a different result type ({stored.GetType()}); expected Lazy<Task<{typeof(T)}>>.");
+        }
+
+        return lazy;
+    }
+
+    // Runs exactly once per key per "generation": Lazy<T>'s ExecutionAndPublication mode
+    // guarantees only one caller's thread invokes this for a given Lazy<Task<T>> instance, and
+    // every concurrent caller for that key awaits the same returned Task<T>. `cache` is safe to
+    // use here without re-locking: every caller awaiting this method's Task - including whichever
+    // caller is executing it - is still holding the lease it acquired in GetOrAddAsync (leases
+    // are only released after that caller's `await lazy.Value` returns), so Dispose() cannot have
+    // nulled out/disposed _cache while this method is running.
+    private async Task<T> RunAndCacheAsync<T>(string key, IMemoryCache cache, Func<Task<T>> factory) where T : notnull
+    {
+        // A new Lazy can be installed for this key right after the previous generation's winner
+        // populated the cache but before it removed its _inFlight entry (GetOrAddAsync's cache
+        // check and _inFlight lookup aren't a single atomic step). Rechecking here means that
+        // narrow race costs at most one wasted lookup instead of an unnecessary duplicate fetch.
+        if (cache.TryGetValue(key, out T cached))
+        {
+            ArgumentNullException.ThrowIfNull(cached);
+            return cached;
+        }
+
+        var value = await factory();
         ArgumentNullException.ThrowIfNull(value);
+        cache.Set(key, value, _cacheOptions());
         return value;
     }
 
