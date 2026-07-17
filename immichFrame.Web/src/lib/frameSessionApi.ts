@@ -2,6 +2,11 @@ import { get } from 'svelte/store';
 import { authSecretStore } from '$lib/stores/persist.store';
 
 const APP_INSTANCE_HEADER_NAME = 'X-ImmichFrame-Instance';
+// Well under both the 10s heartbeat/command-poll interval and the server's 30s session TTL, so
+// a stuck request self-aborts and frees up the next interval tick instead of silently blocking
+// it forever (these requests have no AbortController of their own to tie into, unlike asset
+// loading, since they shouldn't be cancellable by/tied to that unrelated request lifecycle).
+const SESSION_REQUEST_TIMEOUT_MS = 8000;
 
 let observedAppInstanceToken: string | null = null;
 let reloadInProgress = false;
@@ -232,7 +237,8 @@ export async function putFrameSessionSnapshot(
 	const response = await fetch(`/api/frame-sessions/${encodeURIComponent(clientIdentifier)}`, {
 		method: 'PUT',
 		headers: getHeaders(true),
-		body: JSON.stringify(snapshot)
+		body: JSON.stringify(snapshot),
+		signal: AbortSignal.timeout(SESSION_REQUEST_TIMEOUT_MS)
 	});
 
 	observeAppInstance(response);
@@ -246,7 +252,8 @@ export async function getFrameSessionCommands(clientIdentifier: string) {
 		const response = await fetch(
 			`/api/frame-sessions/${encodeURIComponent(clientIdentifier)}/commands`,
 			{
-				headers: getHeaders()
+				headers: getHeaders(),
+				signal: AbortSignal.timeout(SESSION_REQUEST_TIMEOUT_MS)
 			}
 		);
 
