@@ -140,6 +140,8 @@
 	let handledCommandIds = new Set<number>();
 	let reconnectTimeoutId: number | undefined;
 	let isReconnectProbeInFlight = false;
+	let reconnectProbeEpoch = 0;
+	let reconnectWatchdogTimer: number | undefined;
 	const widgetStackOrder = $derived(
 		normalizeWidgetStackOrder($configStore.widgetStackOrder)
 	);
@@ -636,27 +638,61 @@
 			return;
 		}
 
+		const currentProbeEpoch = ++reconnectProbeEpoch;
 		isReconnectProbeInFlight = true;
+
+		clearTimeout(reconnectWatchdogTimer);
+		// Watchdog: unlike handleDone's transition path, nothing else re-arms this loop if it
+		// hangs (rather than rejects) - handleAssetPipelineFailure/scheduleReconnectRetry are
+		// only reached on a rejection, so a stuck loadAssets()/getNextAssets() would otherwise
+		// freeze the frame forever.
+		reconnectWatchdogTimer = window.setTimeout(() => {
+			if (currentProbeEpoch !== reconnectProbeEpoch || !isReconnectProbeInFlight) {
+				return;
+			}
+			console.error('Reconnect watchdog triggered: force-resetting reconnect probe due to hang');
+			if ($clientIdentifierStore) {
+				reportFrameClientLog(
+					$clientIdentifierStore,
+					'Reconnect watchdog triggered: force-resetting reconnect probe due to hang'
+				);
+			}
+			isReconnectProbeInFlight = false;
+			currentAbortController.abort();
+			currentAbortController = new AbortController();
+			reconnectProbeEpoch++;
+			void scheduleReconnectRetry();
+		}, TRANSITION_WATCHDOG_MS);
+
 		try {
 			await loadAssets();
+
+			const recovered = await getNextAssets();
+			if (
+				currentProbeEpoch !== reconnectProbeEpoch ||
+				!recovered ||
+				!displayingAssets.length ||
+				adminStopped
+			) {
+				return;
+			}
+
+			await tick();
+			reconnectPausedPlayback = false;
+			await progressBar?.restart?.(false);
+			await assetComponent?.play?.();
+			void progressBar?.play?.();
+			await syncFrameSession();
 		} catch (error) {
-			await handleAssetPipelineFailure(error);
-			return;
+			if (currentProbeEpoch === reconnectProbeEpoch) {
+				await handleAssetPipelineFailure(error);
+			}
 		} finally {
-			isReconnectProbeInFlight = false;
+			if (currentProbeEpoch === reconnectProbeEpoch) {
+				isReconnectProbeInFlight = false;
+				clearTimeout(reconnectWatchdogTimer);
+			}
 		}
-
-		const recovered = await getNextAssets();
-		if (!recovered || !displayingAssets.length || adminStopped) {
-			return;
-		}
-
-		await tick();
-		reconnectPausedPlayback = false;
-		await progressBar?.restart?.(false);
-		await assetComponent?.play?.();
-		void progressBar?.play?.();
-		await syncFrameSession();
 	}
 
 	let isHandlingAssetTransition = $state(false);
@@ -1208,18 +1244,10 @@
 		});
 
 		startSessionLoops();
-		void (async () => {
-			const loaded = await getNextAssets();
-			if (!loaded || adminStopped) {
-				return;
-			}
-
-			await tick();
-			await progressBar?.restart?.(false);
-			await assetComponent?.play?.();
-			void progressBar?.play?.();
-			await syncFrameSession();
-		})();
+		// Routed through retryAssetRecovery() (rather than calling getNextAssets() directly) so
+		// the very first load gets the same watchdog protection as every later reconnect
+		// attempt - otherwise a hang on this first fetch has nothing to ever retry it.
+		void retryAssetRecovery();
 
 		return () => {
 			window.removeEventListener('mousemove', showCursor);
