@@ -16,9 +16,14 @@ public static class CollectionExtensionMethods
     public static IEnumerable<T> WhereExcludes<T>(this IEnumerable<T> source, IEnumerable<T> excluded)
         => WhereExcludes(source, excluded, t => t!);
 
-    public static IEnumerable<T> WhereExcludes<T>(this IEnumerable<T> source, IEnumerable<T> excluded, Func<T, object> comparator)
+    public static IEnumerable<T> WhereExcludes<T, TKey>(this IEnumerable<T> source, IEnumerable<T> excluded, Func<T, TKey> comparator)
     {
-        var excludedKeys = new HashSet<object>(excluded.Select(comparator));
+        var excludedKeys = new HashSet<TKey>(excluded.Select(comparator));
+        if (excludedKeys.Count == 0)
+        {
+            return source;
+        }
+
         return source.Where(item => !excludedKeys.Contains(comparator(item)));
     }
 

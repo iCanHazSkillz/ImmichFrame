@@ -16,13 +16,14 @@ public static class AssetHelper
     public static async Task<TResult[]> RunWithConcurrencyLimitAsync<TInput, TResult>(
         IEnumerable<TInput> items,
         Func<TInput, Task<TResult>> action,
-        int concurrencyLimit = DefaultPaginationConcurrencyLimit)
+        int concurrencyLimit = DefaultPaginationConcurrencyLimit,
+        CancellationToken ct = default)
     {
         using var semaphore = new SemaphoreSlim(concurrencyLimit);
 
         async Task<TResult> RunAsync(TInput item)
         {
-            await semaphore.WaitAsync();
+            await semaphore.WaitAsync(ct);
             try
             {
                 return await action(item);
@@ -45,7 +46,8 @@ public static class AssetHelper
         // for N sequential paginated fetches in a row.
         var perAlbumAssets = await RunWithConcurrencyLimitAsync(
             excludedAlbums,
-            albumId => LoadExcludedAlbumAssets(immichApi, albumId, accountSettings?.ImmichServerUrl, logger, ct));
+            albumId => LoadExcludedAlbumAssets(immichApi, albumId, accountSettings?.ImmichServerUrl, logger, ct),
+            ct: ct);
 
         return perAlbumAssets.SelectMany(assets => assets);
     }

@@ -85,6 +85,16 @@ public class ApiCache : IApiCache, IDisposable
     // nulled out/disposed _cache while this method is running.
     private async Task<T> RunAndCacheAsync<T>(string key, IMemoryCache cache, Func<Task<T>> factory) where T : notnull
     {
+        // A new Lazy can be installed for this key right after the previous generation's winner
+        // populated the cache but before it removed its _inFlight entry (GetOrAddAsync's cache
+        // check and _inFlight lookup aren't a single atomic step). Rechecking here means that
+        // narrow race costs at most one wasted lookup instead of an unnecessary duplicate fetch.
+        if (cache.TryGetValue(key, out T cached))
+        {
+            ArgumentNullException.ThrowIfNull(cached);
+            return cached;
+        }
+
         var value = await factory();
         ArgumentNullException.ThrowIfNull(value);
         cache.Set(key, value, _cacheOptions());

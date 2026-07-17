@@ -11,30 +11,31 @@ public class ApiCacheTests
     public async Task GetOrAddAsync_ConcurrentCallsSameKey_InvokesFactoryOnce()
     {
         var factoryCalls = 0;
+        var factoryStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var cache = new ApiCache(TimeSpan.FromMinutes(5));
 
         async Task<int> Factory()
         {
             Interlocked.Increment(ref factoryCalls);
+            factoryStarted.TrySetResult();
             await releaseGate.Task;
             return 42;
         }
 
-        var startGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var tasks = Enumerable
-            .Range(0, 20)
-            .Select(async _ =>
-            {
-                await startGate.Task;
-                return await cache.GetOrAddAsync("key", Factory);
-            })
+        // Start the first call and wait for Factory to actually begin running - by then the
+        // in-flight entry is guaranteed registered, so every joiner started afterward is
+        // guaranteed to coalesce onto it rather than possibly racing ahead of it.
+        var firstCall = cache.GetOrAddAsync("key", Factory);
+        await factoryStarted.Task;
+
+        var joinerCalls = Enumerable
+            .Range(0, 19)
+            .Select(_ => cache.GetOrAddAsync("key", Factory))
             .ToList();
 
-        startGate.SetResult();
-        await Task.Delay(20);
         releaseGate.SetResult();
-        var results = await Task.WhenAll(tasks);
+        var results = await Task.WhenAll(new[] { firstCall }.Concat(joinerCalls));
 
         Assert.That(factoryCalls, Is.EqualTo(1));
         Assert.That(results, Has.All.EqualTo(42));
@@ -44,6 +45,7 @@ public class ApiCacheTests
     public async Task GetOrAddAsync_ConcurrentCallsSameKey_AllJoinersObserveSameException()
     {
         var factoryCalls = 0;
+        var factoryStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var thrown = new InvalidOperationException("boom");
         using var cache = new ApiCache(TimeSpan.FromMinutes(5));
@@ -51,32 +53,35 @@ public class ApiCacheTests
         async Task<int> Factory()
         {
             Interlocked.Increment(ref factoryCalls);
+            factoryStarted.TrySetResult();
             await releaseGate.Task;
             throw thrown;
         }
 
-        var startGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var caught = new System.Collections.Concurrent.ConcurrentBag<Exception>();
-        var tasks = Enumerable
-            .Range(0, 20)
-            .Select(async _ =>
-            {
-                await startGate.Task;
-                try
-                {
-                    await cache.GetOrAddAsync("key", Factory);
-                }
-                catch (Exception ex)
-                {
-                    caught.Add(ex);
-                }
-            })
-            .ToList();
 
-        startGate.SetResult();
-        await Task.Delay(20);
+        async Task Call()
+        {
+            try
+            {
+                await cache.GetOrAddAsync("key", Factory);
+            }
+            catch (Exception ex)
+            {
+                caught.Add(ex);
+            }
+        }
+
+        // Same deterministic arrangement as the success-case test above: the first call starts
+        // the in-flight entry, and every joiner is only started once that entry is guaranteed
+        // registered, so all 20 are guaranteed to observe the one factory invocation's outcome.
+        var firstCall = Call();
+        await factoryStarted.Task;
+
+        var joinerCalls = Enumerable.Range(0, 19).Select(_ => Call()).ToList();
+
         releaseGate.SetResult();
-        await Task.WhenAll(tasks);
+        await Task.WhenAll(new[] { firstCall }.Concat(joinerCalls));
 
         Assert.That(factoryCalls, Is.EqualTo(1));
         Assert.That(caught, Has.Count.EqualTo(20));

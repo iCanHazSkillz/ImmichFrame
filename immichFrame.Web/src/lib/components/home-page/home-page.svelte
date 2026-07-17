@@ -677,6 +677,11 @@
 				return;
 			}
 
+			// Recovery is accepted - disarm the watchdog now, before the remaining playback/sync
+			// steps below, so it can't fire (and trigger a redundant second recovery) while
+			// those are still running.
+			clearTimeout(reconnectWatchdogTimer);
+
 			await tick();
 			reconnectPausedPlayback = false;
 			await progressBar?.restart?.(false);
@@ -1256,6 +1261,13 @@
 			window.clearTimeout(timeoutId);
 			window.clearTimeout(videoStallTimeout);
 			window.clearTimeout(watchdogTimer);
+			window.clearTimeout(reconnectWatchdogTimer);
+			// Invalidate any still-in-flight probe so its eventual (post-teardown) resolution is
+			// a no-op, and cancel whatever it was still waiting on - clearReconnectRetry() itself
+			// intentionally doesn't do either of these, since it also runs on every successful
+			// recovery and must not invalidate that recovery's own epoch.
+			reconnectProbeEpoch++;
+			currentAbortController.abort();
 		};
 	});
 
