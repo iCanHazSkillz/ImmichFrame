@@ -64,7 +64,8 @@ public class MemoryAssetsPoolTests
             {
                 Id = Guid.NewGuid(),
                 Assets = CreateSampleAssets(assetsPerMemory, withExifInAssets, memoryYear, assetType),
-                Data = new OnThisDayDto { Year = memoryYear }
+                Type = MemoryType.On_this_day,
+                Data = new MemoryDataDto { Year = memoryYear }
             };
             memories.Add(memory);
         }
@@ -75,7 +76,7 @@ public class MemoryAssetsPoolTests
     public async Task LoadAssets_CallsSearchMemoriesAsync()
     {
         // Arrange
-        _mockImmichApi.Setup(x => x.SearchMemoriesAsync(It.IsAny<DateTimeOffset>(), null, null, null, null, null, It.IsAny<CancellationToken>()))
+        _mockImmichApi.Setup(x => x.SearchMemoriesAsync(It.IsAny<DateTimeOffset>(), null, null, null, null, null, null, null, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<MemoryResponseDto>());
 
         // Act
@@ -87,7 +88,7 @@ public class MemoryAssetsPoolTests
         await _memoryAssetsPool.GetAssets(1, CancellationToken.None); // This should trigger LoadAssets
 
         // Assert
-        _mockImmichApi.Verify(x => x.SearchMemoriesAsync(It.IsAny<DateTimeOffset>(), null, null, null, null, null, It.IsAny<CancellationToken>()), Times.Once);
+        _mockImmichApi.Verify(x => x.SearchMemoriesAsync(It.IsAny<DateTimeOffset>(), null, null, null, null, null, null, null, null, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Test]
@@ -98,7 +99,7 @@ public class MemoryAssetsPoolTests
         var memories = CreateSampleImageMemories(1, 1, false, memoryYear); // Asset without ExifInfo
         var assetId = memories[0].Assets.First().Id;
 
-        _mockImmichApi.Setup(x => x.SearchMemoriesAsync(It.IsAny<DateTimeOffset>(), null, null, null, null, null, It.IsAny<CancellationToken>()))
+        _mockImmichApi.Setup(x => x.SearchMemoriesAsync(It.IsAny<DateTimeOffset>(), null, null, null, null, null, null, null, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(memories);
         _mockImmichApi.Setup(x => x.GetAssetInfoAsync(assetId, null, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AssetResponseDto { Id = assetId, ExifInfo = new ExifResponseDto { DateTimeOriginal = new DateTime(memoryYear, 1, 1) }, People = new List<PersonResponseDto>() });
@@ -120,7 +121,7 @@ public class MemoryAssetsPoolTests
         var memories = CreateSampleImageMemories(1, 1, true, memoryYear); // Asset with ExifInfo
         var assetId = memories[0].Assets.First().Id;
 
-        _mockImmichApi.Setup(x => x.SearchMemoriesAsync(It.IsAny<DateTimeOffset>(), null, null, null, null, null, It.IsAny<CancellationToken>()))
+        _mockImmichApi.Setup(x => x.SearchMemoriesAsync(It.IsAny<DateTimeOffset>(), null, null, null, null, null, null, null, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(memories);
 
         // Act
@@ -149,7 +150,7 @@ public class MemoryAssetsPoolTests
             var memories = CreateSampleImageMemories(1, 1, true, tc.year);
             memories[0].Assets.First().ExifInfo.DateTimeOriginal = new DateTime(tc.year, 1, 1); // Ensure Exif has the year
 
-            _mockImmichApi.Setup(x => x.SearchMemoriesAsync(It.IsAny<DateTimeOffset>(), null, null, null, null, null, It.IsAny<CancellationToken>()))
+            _mockImmichApi.Setup(x => x.SearchMemoriesAsync(It.IsAny<DateTimeOffset>(), null, null, null, null, null, null, null, null, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(memories);
 
             _memoryAssetsPool = new MemoryAssetsPool(_mockImmichApi.Object, _mockAccountSettings.Object);
@@ -176,7 +177,7 @@ public class MemoryAssetsPoolTests
         var memories = CreateSampleImageMemories(imageMemoriesCount, assetsPerMemory, true, memoryYear); // 2 memories, 2 assets each
         memories.AddRange(CreateSampleVideoMemories(videoMemoriesCount, assetsPerMemory, true, memoryYear)); // 2 video memories, 2 assets each
 
-        _mockImmichApi.Setup(x => x.SearchMemoriesAsync(It.IsAny<DateTimeOffset>(), null, null, null, null, null, It.IsAny<CancellationToken>()))
+        _mockImmichApi.Setup(x => x.SearchMemoriesAsync(It.IsAny<DateTimeOffset>(), null, null, null, null, null, null, null, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(memories).Verifiable(Times.Once);
 
         // Act
@@ -210,7 +211,7 @@ public class MemoryAssetsPoolTests
         memories.AddRange(CreateSampleVideoMemories(videoMemoriesCount, assetsPerMemory, true, memoryYear)); // 2 video memories, 2 assets each
 
         _mockAccountSettings.Setup(x => x.ShowVideos).Returns(true);
-        _mockImmichApi.Setup(x => x.SearchMemoriesAsync(It.IsAny<DateTimeOffset>(), null, null, null, null, null, It.IsAny<CancellationToken>()))
+        _mockImmichApi.Setup(x => x.SearchMemoriesAsync(It.IsAny<DateTimeOffset>(), null, null, null, null, null, null, null, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(memories).Verifiable(Times.Once);
 
         // Act
@@ -228,5 +229,36 @@ public class MemoryAssetsPoolTests
         Assert.That(loadedAssets.Count(), Is.EqualTo(8)); // 4 memories * 2 assets
         _mockImmichApi.VerifyAll();
 
+    }
+
+    [Test]
+    public async Task LoadAssets_DescribesBirthdayMemoriesByPersonName()
+    {
+        // For birthday memories Data.Year is the birth year, so "N years ago" would be wrong.
+        var memories = CreateSampleImageMemories(1, 1, true, 1989);
+        memories[0].Type = MemoryType.Birthday;
+        memories[0].Data.PersonName = "Sara";
+
+        _mockImmichApi.Setup(x => x.SearchMemoriesAsync(It.IsAny<DateTimeOffset>(), null, null, null, null, null, null, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(memories);
+
+        var resultAsset = (await _memoryAssetsPool.GetAssets(1, CancellationToken.None)).First();
+
+        Assert.That(resultAsset.ExifInfo.Description, Is.EqualTo("Sara's birthday"));
+    }
+
+    [Test]
+    public async Task LoadAssets_DescribesBirthdayMemoryWithoutPersonName()
+    {
+        var memories = CreateSampleImageMemories(1, 1, true, 1989);
+        memories[0].Type = MemoryType.Birthday;
+        memories[0].Data.PersonName = null;
+
+        _mockImmichApi.Setup(x => x.SearchMemoriesAsync(It.IsAny<DateTimeOffset>(), null, null, null, null, null, null, null, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(memories);
+
+        var resultAsset = (await _memoryAssetsPool.GetAssets(1, CancellationToken.None)).First();
+
+        Assert.That(resultAsset.ExifInfo.Description, Is.EqualTo("Birthday"));
     }
 }
