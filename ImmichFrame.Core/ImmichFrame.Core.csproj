@@ -13,6 +13,7 @@
   <ItemGroup>
     <PackageReference Include="BloomFilter.NetCore" />
     <PackageReference Include="Ical.Net" />
+    <PackageReference Include="NodaTime" />
     <PackageReference Include="Microsoft.Extensions.ApiDescription.Client">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

@@ -4,6 +4,9 @@ namespace ImmichFrame.Core.Helpers;
 
 public static class TimeZoneSettingsHelper
 {
+    private static readonly HashSet<string> KnownIanaTimeZoneNames =
+        new(TZConvert.KnownIanaTimeZoneNames, StringComparer.Ordinal);
+
     public static IReadOnlyList<string> GetAvailableTimeZoneIds()
     {
         return TZConvert.KnownIanaTimeZoneNames
@@ -70,6 +73,15 @@ public static class TimeZoneSettingsHelper
         if (string.IsNullOrWhiteSpace(candidate))
         {
             return null;
+        }
+
+        // A valid IANA ID is already what we want; keep it as-is. Round-tripping it through a
+        // Windows zone would replace it with that zone's default IANA zone (America/Edmonton ->
+        // "Mountain Standard Time" -> America/Denver), which breaks as soon as the two regions'
+        // rules diverge, as Alberta's and Colorado's did on 2026-11-01.
+        if (KnownIanaTimeZoneNames.Contains(candidate))
+        {
+            return candidate;
         }
 
         if (TZConvert.TryWindowsToIana(candidate, out var windowsMapped) &&
