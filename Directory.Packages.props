@@ -10,6 +10,8 @@
     <PackageVersion Include="coverlet.collector" Version="6.0.4" />
     <PackageVersion Include="ExCSS" Version="4.2.0-release0004" />
     <PackageVersion Include="Ical.Net" Version="4.3.1" />
+    <!-- Pinned above Ical.Net's minimum (3.2.0) for its embedded tzdb: 3.3.7 ships 2026f, which has Alberta's 2026-11-01 switch to permanent UTC-6. -->
+    <PackageVersion Include="NodaTime" Version="3.3.7" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.20" />
     <PackageVersion Include="Microsoft.AspNetCore.SpaProxy" Version="8.0.20" />
     <PackageVersion Include="Microsoft.Extensions.ApiDescription.Client" Version="8.0.20" />
