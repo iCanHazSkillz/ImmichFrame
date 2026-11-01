@@ -13,6 +13,14 @@ namespace ImmichFrame.Core.Tests.Logic.Pool
         private MultiAssetPool _aggregatingPool;
         private List<IAssetPool> _assetPools;
 
+        // Hands out up to n queued assets, like a real pool answering a batch request.
+        private static List<AssetResponseDto> Drain(Queue<AssetResponseDto> queue, int n)
+        {
+            var batch = new List<AssetResponseDto>();
+            while (batch.Count < n && queue.Count > 0) batch.Add(queue.Dequeue());
+            return batch;
+        }
+
         [SetUp]
         public void Setup()
         {
@@ -69,7 +77,7 @@ namespace ImmichFrame.Core.Tests.Logic.Pool
 
             _mockPool1.Setup(p => p.GetAssetCount(It.IsAny<CancellationToken>()))
                 .ReturnsAsync(() => (long)pool1AvailableAssets.Count);
-            _mockPool1.Setup(p => p.GetAssets(1, It.IsAny<CancellationToken>())) // AggregatingAssetPool.GetNextAsset calls GetAssets(1,...)
+            _mockPool1.Setup(p => p.GetAssets(It.IsAny<int>(), It.IsAny<CancellationToken>())) // AggregatingAssetPool.GetNextAsset calls GetAssets(1,...)
                 .ReturnsAsync(() => pool1AvailableAssets.Any()
                     ? new List<AssetResponseDto> { pool1AvailableAssets.Dequeue() }
                     : new List<AssetResponseDto>());
@@ -90,14 +98,14 @@ namespace ImmichFrame.Core.Tests.Logic.Pool
             var assetP1A2 = CreateAsset("p1a2");
             var pool1Queue = new Queue<AssetResponseDto>(new[] { assetP1A1, assetP1A2 });
             _mockPool1.Setup(p => p.GetAssetCount(It.IsAny<CancellationToken>())).ReturnsAsync(() => (long)pool1Queue.Count);
-            _mockPool1.Setup(p => p.GetAssets(1, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(() => pool1Queue.Any() ? new List<AssetResponseDto> { pool1Queue.Dequeue() } : new List<AssetResponseDto>());
+            _mockPool1.Setup(p => p.GetAssets(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((int n, CancellationToken _) => Drain(pool1Queue, n));
 
             var assetP2A1 = CreateAsset("p2a1");
             var pool2Queue = new Queue<AssetResponseDto>(new[] { assetP2A1 });
             _mockPool2.Setup(p => p.GetAssetCount(It.IsAny<CancellationToken>())).ReturnsAsync(() => (long)pool2Queue.Count);
-            _mockPool2.Setup(p => p.GetAssets(1, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(() => pool2Queue.Any() ? new List<AssetResponseDto> { pool2Queue.Dequeue() } : new List<AssetResponseDto>());
+            _mockPool2.Setup(p => p.GetAssets(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((int n, CancellationToken _) => Drain(pool2Queue, n));
 
             _assetPools.Add(_mockPool1.Object);
             _assetPools.Add(_mockPool2.Object);
@@ -121,7 +129,7 @@ namespace ImmichFrame.Core.Tests.Logic.Pool
 
             // Pool1 reports 5 assets, but its queue only has 1.
             _mockPool1.Setup(p => p.GetAssetCount(It.IsAny<CancellationToken>())).ReturnsAsync(5L);
-            _mockPool1.Setup(p => p.GetAssets(1, It.IsAny<CancellationToken>()))
+            _mockPool1.Setup(p => p.GetAssets(It.IsAny<int>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(() =>
                 {
                     if (pool1AvailableAssets.Any())
@@ -138,8 +146,8 @@ namespace ImmichFrame.Core.Tests.Logic.Pool
             var originalPool2Assets = new List<AssetResponseDto> { p2a1 };
             _mockPool2.Setup(p => p.GetAssetCount(It.IsAny<CancellationToken>()))
                 .ReturnsAsync(() => (long)pool2AvailableAssets.Count);
-            _mockPool2.Setup(p => p.GetAssets(1, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(() => pool2AvailableAssets.Any() ? new List<AssetResponseDto> { pool2AvailableAssets.Dequeue() } : new List<AssetResponseDto>());
+            _mockPool2.Setup(p => p.GetAssets(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((int n, CancellationToken _) => Drain(pool2AvailableAssets, n));
 
             _assetPools.Add(_mockPool1.Object);
             _assetPools.Add(_mockPool2.Object);
@@ -168,13 +176,13 @@ namespace ImmichFrame.Core.Tests.Logic.Pool
 
             var q1 = new Queue<AssetResponseDto>(new[] { asset1, asset2 });
             _mockPool1.Setup(p => p.GetAssetCount(It.IsAny<CancellationToken>())).ReturnsAsync(() => (long)q1.Count);
-            _mockPool1.Setup(p => p.GetAssets(1, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(() => q1.Any() ? new List<AssetResponseDto> { q1.Dequeue() } : new List<AssetResponseDto>());
+            _mockPool1.Setup(p => p.GetAssets(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((int n, CancellationToken _) => Drain(q1, n));
 
             var q2 = new Queue<AssetResponseDto>(new[] { asset3 });
             _mockPool2.Setup(p => p.GetAssetCount(It.IsAny<CancellationToken>())).ReturnsAsync(() => (long)q2.Count);
-            _mockPool2.Setup(p => p.GetAssets(1, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(() => q2.Any() ? new List<AssetResponseDto> { q2.Dequeue() } : new List<AssetResponseDto>());
+            _mockPool2.Setup(p => p.GetAssets(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((int n, CancellationToken _) => Drain(q2, n));
 
             _assetPools.Add(_mockPool1.Object);
             _assetPools.Add(_mockPool2.Object);
@@ -198,7 +206,7 @@ namespace ImmichFrame.Core.Tests.Logic.Pool
         public async Task GetNextAssetBehavior_NoAssets_ReturnsNull()
         {
             _mockPool1.Setup(p => p.GetAssetCount(It.IsAny<CancellationToken>())).ReturnsAsync(0L);
-            _mockPool1.Setup(p => p.GetAssets(1, It.IsAny<CancellationToken>())).ReturnsAsync(new List<AssetResponseDto>());
+            _mockPool1.Setup(p => p.GetAssets(It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync(new List<AssetResponseDto>());
             _assetPools.Add(_mockPool1.Object);
             _aggregatingPool = new MultiAssetPool(_assetPools); // Use MultiAssetPool
 

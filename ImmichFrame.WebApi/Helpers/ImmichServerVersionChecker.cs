@@ -9,16 +9,19 @@ namespace ImmichFrame.WebApi.Helpers
         private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(5);
 
         /// <summary>
-        /// The minimum Immich server major version supported by this version of ImmichFrame.
+        /// The minimum Immich server version supported by this version of ImmichFrame. v3.2 added
+        /// the search filter API that AccountSearchPool relies on.
         /// </summary>
         public const int MinimumSupportedMajorVersion = 3;
+        public const int MinimumSupportedMinorVersion = 2;
+        public static readonly Version MinimumSupportedVersion = new(MinimumSupportedMajorVersion, MinimumSupportedMinorVersion, 0);
 
         /// <summary>
         /// Checks and logs the version of every configured Immich server.
         /// </summary>
         /// <returns>
         /// <c>true</c> only if every configured Immich server was reachable and reported a version of
-        /// v<see cref="MinimumSupportedMajorVersion"/> or newer. Returns <c>false</c> if the configuration
+        /// v<see cref="MinimumSupportedVersion"/> or newer. Returns <c>false</c> if the configuration
         /// could not be loaded, if a server reported an older version, or if a server's version could not
         /// be determined (e.g. unreachable) — in every one of these cases ImmichFrame must not start.
         /// </returns>
@@ -53,11 +56,11 @@ namespace ImmichFrame.WebApi.Helpers
                     logger.LogInformation("Immich server {Url} is running v{Major}.{Minor}.{Patch}",
                         account.ImmichServerUrl, version.Major, version.Minor, version.Patch);
 
-                    if (version.Major < MinimumSupportedMajorVersion)
+                    if (new Version((int)version.Major, (int)version.Minor, (int)version.Patch) < MinimumSupportedVersion)
                     {
                         allCompatible = false;
                         logger.LogCritical("Immich server {Url} is running v{Major}.{Minor}.{Patch}, but this version of ImmichFrame requires Immich v{Minimum} or newer. Please update your Immich server.",
-                            account.ImmichServerUrl, version.Major, version.Minor, version.Patch, MinimumSupportedMajorVersion);
+                            account.ImmichServerUrl, version.Major, version.Minor, version.Patch, MinimumSupportedVersion);
                     }
                 }
                 catch (Exception ex)

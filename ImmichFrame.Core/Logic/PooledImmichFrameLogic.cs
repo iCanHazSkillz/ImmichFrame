@@ -39,33 +39,18 @@ public class PooledImmichFrameLogic : IAccountImmichFrameLogic
 
     private IAssetPool BuildPool(IAccountSettings accountSettings)
     {
-        var hasAlbums = accountSettings.Albums?.Any() ?? false;
-        var hasPeople = accountSettings.People?.Any() ?? false;
-        var hasTags = accountSettings.Tags?.Any() ?? false;
-
-        if (!accountSettings.ShowFavorites && !accountSettings.ShowMemories && !hasAlbums && !hasPeople && !hasTags)
-        {
-            return new AllAssetsPool(_apiCache, _immichApi, accountSettings, _loggerFactory?.CreateLogger<AllAssetsPool>());
-        }
-
         var pools = new List<IAssetPool>();
 
-        if (accountSettings.ShowFavorites)
-            pools.Add(new FavoriteAssetsPool(_apiCache, _immichApi, accountSettings, _loggerFactory?.CreateLogger<FavoriteAssetsPool>()));
+        // Library assets come from Immich's server-side search (favorites, albums, people and tags
+        // are OR'ed into one filter; no source configured means the whole library). A memories-only
+        // account skips it, as before.
+        if (!accountSettings.ShowMemories || SearchFilters.HasConfiguredSource(accountSettings))
+            pools.Add(new AccountSearchPool(_apiCache, _immichApi, accountSettings, _loggerFactory?.CreateLogger<AccountSearchPool>()));
 
         if (accountSettings.ShowMemories)
             pools.Add(new MemoryAssetsPool(_immichApi, accountSettings, _loggerFactory?.CreateLogger<MemoryAssetsPool>()));
 
-        if (hasAlbums)
-            pools.Add(new AlbumAssetsPool(_apiCache, _immichApi, accountSettings, _loggerFactory?.CreateLogger<AlbumAssetsPool>()));
-
-        if (hasPeople)
-            pools.Add(new PersonAssetsPool(_apiCache, _immichApi, accountSettings, _loggerFactory?.CreateLogger<PersonAssetsPool>()));
-
-        if (hasTags)
-            pools.Add(new TagAssetsPool(_apiCache, _immichApi, accountSettings, _loggerFactory?.CreateLogger<TagAssetsPool>()));
-
-        return new MultiAssetPool(pools);
+        return pools.Count == 1 ? pools[0] : new MultiAssetPool(pools);
     }
 
     public async Task<AssetResponseDto?> GetNextAsset()
