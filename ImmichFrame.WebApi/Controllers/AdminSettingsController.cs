@@ -73,7 +73,7 @@ public class AdminSettingsController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
-        var httpClient = _httpClientFactory.CreateClient("ImmichApiAccountClient");
+        var httpClient = _httpClientFactory.CreateClient(ImmichApiHttpClientExtensions.ImmichApiAccountClient);
         httpClient.UseApiKey(account.ApiKey);
         var immichApi = new ImmichApi(account.ImmichServerUrl, httpClient);
 

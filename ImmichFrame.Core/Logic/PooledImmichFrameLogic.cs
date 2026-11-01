@@ -22,7 +22,7 @@ public class PooledImmichFrameLogic : IAccountImmichFrameLogic
         _generalSettings = generalSettings;
         _loggerFactory = loggerFactory;
 
-        var httpClient = httpClientFactory.CreateClient("ImmichApiAccountClient");
+        var httpClient = httpClientFactory.CreateClient(ImmichApiHttpClientExtensions.ImmichApiAccountClient);
         AccountSettings = accountSettings;
 
         httpClient.UseApiKey(accountSettings.ApiKey);
