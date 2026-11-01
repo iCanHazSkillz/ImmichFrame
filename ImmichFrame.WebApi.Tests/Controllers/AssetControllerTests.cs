@@ -98,40 +98,38 @@ namespace ImmichFrame.WebApi.Tests.Controllers
             }
         }
 
+        /// <summary>
+        /// Answers Immich's server-side search the way AccountSearchPool calls it: account selection
+        /// asks /search/statistics for the match count, then /search/random for the assets. The
+        /// responses are built from the generated DTOs so the test breaks at compile time if the
+        /// OpenAPI schema changes.
+        /// </summary>
+        private void SetupLibrarySearchReturning(Guid assetId)
+        {
+            var statsJson = JsonSerializer.Serialize(new SearchStatisticsResponseDto { Total = 1 });
+            _mockHttpMessageHandler.Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.Is<HttpRequestMessage>(req => req.RequestUri!.ToString().Contains("/search/statistics")),
+                    ItExpr.IsAny<CancellationToken>())
+                .ReturnsAsync(() => new HttpResponseMessage { StatusCode = HttpStatusCode.OK, Content = new StringContent(statsJson) });
+
+            var randomJson = JsonSerializer.Serialize(new[] { BuildAssetResponse(assetId) });
+            _mockHttpMessageHandler.Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.Is<HttpRequestMessage>(req => req.RequestUri!.ToString().Contains("/search/random")),
+                    ItExpr.IsAny<CancellationToken>())
+                .ReturnsAsync(() => new HttpResponseMessage { StatusCode = HttpStatusCode.OK, Content = new StringContent(randomJson) });
+        }
+
         [Test]
         public async Task GetRandomImage_ReturnsImageFromMockServer()
         {
             // Arrange
             var expectedAssetId = Guid.NewGuid();
 
-            // Build the mock response from the generated DTOs so the test fails at
-            // compile time (not at runtime) if the OpenAPI schema changes.
-            var searchResponse = new SearchResponseDto
-            {
-                Assets = new SearchAssetResponseDto
-                {
-                    Count = 1,
-                    Total = 1,
-                    Items = { BuildAssetResponse(expectedAssetId) },
-                    NextPage = null,
-                },
-                // Albums is already initialised to an empty SearchAlbumResponseDto.
-            };
-
-            var jsonResponse = JsonSerializer.Serialize(searchResponse);
-
-            // Setup for SearchAssetsAsync
-            _mockHttpMessageHandler.Protected()
-                .Setup<Task<HttpResponseMessage>>(
-                    "SendAsync",
-                    ItExpr.Is<HttpRequestMessage>(req => req.RequestUri!.ToString().Contains("/search/metadata")),
-                    ItExpr.IsAny<CancellationToken>()
-                )
-                .ReturnsAsync(() => new HttpResponseMessage // Use a Func to return new instance each time
-                {
-                    StatusCode = HttpStatusCode.OK,
-                    Content = new StringContent(jsonResponse)
-                });
+            SetupLibrarySearchReturning(expectedAssetId);
 
             // Setup for ViewAssetAsync (thumbnail)
             var mockImageData = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 }; // Minimal JPEG
@@ -185,31 +183,7 @@ namespace ImmichFrame.WebApi.Tests.Controllers
         {
             var assetId = Guid.NewGuid();
 
-            // Build the mock response from the generated DTOs so the test fails at
-            // compile time (not at runtime) if the OpenAPI schema changes.
-            var searchResponse = new SearchResponseDto
-            {
-                Assets = new SearchAssetResponseDto
-                {
-                    Count = 1,
-                    Total = 1,
-                    Items = { BuildAssetResponse(assetId) },
-                    NextPage = null,
-                },
-            };
-            var jsonResponse = JsonSerializer.Serialize(searchResponse);
-
-            _mockHttpMessageHandler.Protected()
-                .Setup<Task<HttpResponseMessage>>(
-                    "SendAsync",
-                    ItExpr.Is<HttpRequestMessage>(req => req.RequestUri!.ToString().Contains("/search/metadata")),
-                    ItExpr.IsAny<CancellationToken>()
-                )
-                .ReturnsAsync(() => new HttpResponseMessage
-                {
-                    StatusCode = HttpStatusCode.OK,
-                    Content = new StringContent(jsonResponse)
-                });
+            SetupLibrarySearchReturning(assetId);
 
             _mockHttpMessageHandler.Protected()
                 .Setup<Task<HttpResponseMessage>>(

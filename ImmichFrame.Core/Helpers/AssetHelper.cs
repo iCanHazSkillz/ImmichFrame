@@ -8,9 +8,8 @@ namespace ImmichFrame.Core.Helpers;
 
 public static class AssetHelper
 {
-    // Shared across AlbumAssetsPool, PersonAssetsPool, and TagAssetsPool so an account with many
-    // configured albums/people/tags doesn't fire off unbounded concurrent paginated searches
-    // against the same Immich server at once.
+    // Bounds concurrent requests against the same Immich server (excluded-album pagination for
+    // memories, per-asset tag lookups in AccountSearchPool).
     public const int DefaultPaginationConcurrencyLimit = 4;
 
     public static async Task<TResult[]> RunWithConcurrencyLimitAsync<TInput, TResult>(

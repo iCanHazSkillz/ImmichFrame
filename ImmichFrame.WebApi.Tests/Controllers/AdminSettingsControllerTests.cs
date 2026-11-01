@@ -1345,7 +1345,7 @@ public class AdminSettingsControllerTests
                 {
                     StatusCode = HttpStatusCode.OK,
                     Content = new StringContent(
-                        $$"""{"major":{{ImmichServerVersionChecker.MinimumSupportedMajorVersion}},"minor":0,"patch":0,"prerelease":null}""")
+                        $$"""{"major":{{ImmichServerVersionChecker.MinimumSupportedMajorVersion}},"minor":{{ImmichServerVersionChecker.MinimumSupportedMinorVersion}},"patch":0,"prerelease":null}""")
                 });
             }
 
